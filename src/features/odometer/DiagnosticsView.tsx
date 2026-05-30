@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Dimensions,
   Modal,
   Pressable,
   ScrollView,
@@ -7,6 +8,8 @@ import {
   Text,
   View,
 } from 'react-native';
+
+const SHEET_HEIGHT = Dimensions.get('window').height * 0.8;
 import { AddReason } from './odometer';
 import { ReasonCounts } from './useOdometer';
 
@@ -114,10 +117,13 @@ export default function DiagnosticsView({ counts }: Props) {
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
       >
-        <Pressable style={styles.overlay} onPress={() => setModalVisible(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
+        <View style={styles.overlay}>
+          {/* 背面タップで閉じる */}
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalVisible(false)} />
+          {/* シートは View にして ScrollView の flex:1 を正しく機能させる */}
+          <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>判定の説明</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
               {ROWS.map(({ reason, label, color, desc }) => (
                 <View key={reason} style={styles.item}>
                   <Text style={[styles.itemLabel, { color }]}>{label}</Text>
@@ -128,8 +134,8 @@ export default function DiagnosticsView({ counts }: Props) {
             <Pressable onPress={() => setModalVisible(false)} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>閉じる</Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -214,13 +220,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    height: SHEET_HEIGHT,
     backgroundColor: '#151A21',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
     paddingTop: 20,
     paddingBottom: 32,
-    maxHeight: '80%',
+  },
+  scroll: {
+    flex: 1,
   },
   sheetTitle: {
     color: '#F3F6FA',
