@@ -1,13 +1,17 @@
 // useOdometer.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Geolocation from 'react-native-geolocation-service';
-import { Fix, Odometer, OdometerConfig } from './odometer';
+import { AddReason, Fix, Odometer, OdometerConfig } from './odometer';
 import { FixLogger } from './fixLogger';
 
 interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積
   config?: Partial<OdometerConfig>; // 閾値の上書き
 }
+
+export type ReasonCounts = Partial<Record<AddReason, number>>;
+
+const EMPTY_COUNTS: ReasonCounts = {};
 
 export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const { debug = false, config } = options;
@@ -16,15 +20,18 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const [meters, setMeters] = useState(0);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [logCount, setLogCount] = useState(0);
+  const [reasonCounts, setReasonCounts] = useState<ReasonCounts>(EMPTY_COUNTS);
 
   const reset = useCallback(() => {
     odometerRef.current.reset();
     setMeters(0);
+    setReasonCounts(EMPTY_COUNTS);
   }, []);
 
   const clearLog = useCallback(() => {
     loggerRef.current.clear();
     setLogCount(0);
+    setReasonCounts(EMPTY_COUNTS);
   }, []);
 
   const getCsv = useCallback(() => loggerRef.current.toCsv(), []);
@@ -44,6 +51,10 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         const result = odometerRef.current.add(fix);
         setMeters(result.total);
         setSpeedKmh(fix.speed != null && fix.speed > 0 ? fix.speed * 3.6 : 0);
+        setReasonCounts(prev => ({
+          ...prev,
+          [result.reason]: (prev[result.reason] ?? 0) + 1,
+        }));
         if (debug) {
           loggerRef.current.record(fix, result);
           setLogCount(loggerRef.current.count);
@@ -65,5 +76,5 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
     };
   }, [active, debug]);
 
-  return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries };
+  return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries, reasonCounts };
 }

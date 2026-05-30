@@ -18,6 +18,7 @@ import {
 } from '@sayem314/react-native-keep-awake';
 import { useOdometer } from './useOdometer';
 import { writeCsvFile } from './logExport';
+import DiagnosticsView from './DiagnosticsView';
 
 const COLORS = {
   bg: '#0A0C10',
@@ -54,7 +55,7 @@ export default function OdometerScreen() {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
 
-  const { km, speedKmh, logCount, reset, getCsv, clearLog } = useOdometer(active, {
+  const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
     debug: DEBUG,
   });
 
@@ -168,12 +169,15 @@ export default function OdometerScreen() {
       {/* デバッグ（開発ビルドのみ） */}
       {DEBUG && (
         <View style={styles.debug}>
-          <Text style={styles.debugText}>log: {logCount} 点</Text>
-          <Pressable onPress={handleExport} disabled={logCount === 0}>
-            <Text style={[styles.debugLink, { opacity: logCount === 0 ? 0.4 : 1 }]}>
-              CSV を書き出す
-            </Text>
-          </Pressable>
+          <View style={styles.debugRow}>
+            <Text style={styles.debugText}>log: {logCount} 点</Text>
+            <Pressable onPress={handleExport} disabled={logCount === 0}>
+              <Text style={[styles.debugLink, { opacity: logCount === 0 ? 0.4 : 1 }]}>
+                CSV を書き出す
+              </Text>
+            </Pressable>
+          </View>
+          <DiagnosticsView counts={reasonCounts} />
         </View>
       )}
     </View>
@@ -239,12 +243,14 @@ const styles = StyleSheet.create({
   resetText: { color: COLORS.textDim, fontSize: 15, fontWeight: '600' },
   debug: {
     marginTop: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
+  },
+  debugRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   debugText: {
     color: COLORS.textDim,
