@@ -232,9 +232,9 @@ export default function TuningPanel({ visible, onClose, currentConfig, onApply, 
                 {/* 推奨 config */}
                 <Text style={[styles.sectionTitle, { marginTop: 24 }]}>推奨 config</Text>
                 <View style={styles.bestBox}>
-                  <BestRow label="stopSpeedMps" value={result.best.config.stopSpeedMps} defaultVal={DEFAULT_CONFIG.stopSpeedMps} unit="m/s" />
-                  <BestRow label="maxAccuracyM" value={result.best.config.maxAccuracyM} defaultVal={DEFAULT_CONFIG.maxAccuracyM} unit="m" />
-                  <BestRow label="lowSpeedMps"  value={result.best.config.lowSpeedMps}  defaultVal={DEFAULT_CONFIG.lowSpeedMps}  unit="m/s" />
+                  <BestRow label="stopSpeedMps" value={result.best.config.stopSpeedMps} defaultVal={currentConfig.stopSpeedMps ?? DEFAULT_CONFIG.stopSpeedMps} unit="m/s" />
+                  <BestRow label="maxAccuracyM" value={result.best.config.maxAccuracyM} defaultVal={currentConfig.maxAccuracyM ?? DEFAULT_CONFIG.maxAccuracyM} unit="m" />
+                  <BestRow label="lowSpeedMps"  value={result.best.config.lowSpeedMps}  defaultVal={currentConfig.lowSpeedMps  ?? DEFAULT_CONFIG.lowSpeedMps}  unit="m/s" />
                   <View style={styles.bestDivider} />
                   <View style={styles.bestResultRow}>
                     <Text style={styles.bestResultLabel}>推定距離</Text>
@@ -270,7 +270,7 @@ export default function TuningPanel({ visible, onClose, currentConfig, onApply, 
                         <Text style={[styles.th, { flex: 1 }]}>停車/テレポ</Text>
                       </View>
                       {s.rows.map(row => {
-                        const isDefault = row.value === DEFAULT_CONFIG[s.key];
+                        const isDefault = row.value === (currentConfig[s.key] ?? DEFAULT_CONFIG[s.key]);
                         const err = row.errorKm ?? 0;
                         const errColor = Math.abs(err) < 0.05 ? C.accent : Math.abs(err) < 0.2 ? C.warn : C.danger;
                         return (
@@ -289,7 +289,7 @@ export default function TuningPanel({ visible, onClose, currentConfig, onApply, 
                         );
                       })}
                     </View>
-                    <Text style={styles.tableNote}>* 現在の既定値</Text>
+                    <Text style={styles.tableNote}>* 現在の設定値</Text>
                   </View>
                 ))}
                 <View style={{ height: 16 }} />
