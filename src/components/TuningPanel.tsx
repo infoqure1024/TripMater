@@ -68,10 +68,10 @@ interface Props {
 }
 
 function fmtConfig(cfg: Partial<OdometerConfig>): string {
-  const keys: (keyof OdometerConfig)[] = ['stopSpeedMps', 'maxAccuracyM', 'lowSpeedMps'];
-  return keys
-    .map(k => `${k}=${cfg[k] ?? DEFAULT_CONFIG[k]}`)
-    .join('  ');
+  const keys: (keyof OdometerConfig)[] = [
+    'stopSpeedMps', 'maxAccuracyM', 'lowSpeedMps', 'kalmanQ', 'kalmanR',
+  ];
+  return keys.map(k => `${k}=${cfg[k] ?? DEFAULT_CONFIG[k]}`).join('  ');
 }
 
 export default function TuningPanel({ visible, onClose, currentConfig, onApply, onResetConfig }: Props) {
@@ -132,6 +132,18 @@ export default function TuningPanel({ visible, onClose, currentConfig, onApply, 
           label: '低速閾値',
           unit: 'm/s',
           rows: sweepDetailed(fixes, 'lowSpeedMps', [1.4, 2.0, 2.8, 4.0], gt),
+        },
+        {
+          key: 'kalmanQ' as keyof OdometerConfig,
+          label: 'Kalman Q（プロセスノイズ）',
+          unit: '(m/s)²/s',
+          rows: sweepDetailed(fixes, 'kalmanQ', [0.25, 0.5, 1.0, 2.0], gt),
+        },
+        {
+          key: 'kalmanR' as keyof OdometerConfig,
+          label: 'Kalman R（計測ノイズ）',
+          unit: '(m/s)²',
+          rows: sweepDetailed(fixes, 'kalmanR', [0.05, 0.1, 0.25, 0.5], gt),
         },
       ];
 
