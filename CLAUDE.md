@@ -1,7 +1,14 @@
 # 走行距離計測機能（Odometer）
 
-React Native 0.81 / bare workflow / TypeScript。GPS で自動車の走行距離を計測する機能。
+React Native 0.81.6 / bare workflow / TypeScript。GPS で自動車の走行距離を計測する機能。
 Android 中心、iOS でも動作する想定。
+
+## セットアップ済み内容
+
+- `npx @react-native-community/cli init Odometer --version 0.81.6` で初期化済み
+- feature ファイルは `src/features/odometer/` に配置
+- Android 権限・画面常時点灯の設定済み（下記参照）
+- 依存ライブラリインストール済み
 
 ## 使用前提・設計判断
 
@@ -28,17 +35,28 @@ Android 中心、iOS でも動作する想定。
 再計算し、車のトリップメーター実測値（ground truth）と突き合わせて誤差最小の値を探す。
 CSV の `reason` 列で「どの判定が出たか」も追える。
 
-## ファイル構成（推奨: src/features/odometer/）
+## ファイル構成（src/features/odometer/）
 
-- `odometer.ts`      … 距離積算ロジック（RN 非依存）。`Odometer` クラス + `OdometerConfig`。`add()` は判定理由と加算距離を返す。
-- `fixLogger.ts`     … 生 fix + 判定結果を蓄積し CSV 出力（デバッグ用、RN 非依存）。
-- `useOdometer.ts`   … `watchPosition` と配線するフック。`debug` で生ログ蓄積、距離・`speedKmh` を公開。
-- `logExport.ts`     … CSV をファイルに書き出す（`react-native-fs` 必要）。
-- `tuning.ts`        … オフライン解析（`parseCsv` / `replay` / `sweep`）。Node でも実行可。
-- `OdometerScreen.tsx` … 計測画面 UI（暗色・計器盤風。開始/停止/リセット/CSV 出力）。
+- `odometer.ts`         … 距離積算ロジック（RN 非依存）。`Odometer` クラス + `OdometerConfig`。`add()` は `AddReason` と加算距離を返す。
+- `fixLogger.ts`        … 生 fix + 判定結果を蓄積し CSV 出力（デバッグ用、RN 非依存）。
+- `useOdometer.ts`      … `watchPosition` と配線するフック。`reasonCounts`（reason 別件数）・距離・`speedKmh` を公開。
+- `logExport.ts`        … CSV をファイルに書き出す（`react-native-fs` 必要）。
+- `tuning.ts`           … オフライン解析（`parseCsv` / `replay` / `sweep`）。Node でも実行可。
+- `OdometerScreen.tsx`  … 計測画面 UI（暗色・計器盤風。開始/停止/リセット/CSV 出力）。DEV ビルドでは DIAGNOSTICS パネルを表示。
+- `DiagnosticsView.tsx` … reason 別件数のバーチャート + 「?」で説明モーダルを表示（DEV のみ）。
+
+## Android 設定（AndroidManifest.xml）
+
+```xml
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+<!-- activity に android:keepScreenOn="true" -->
+```
 
 ## 依存ライブラリ
 
-- `react-native-geolocation-service`
-- `@sayem314/react-native-keep-awake`（画面常時点灯。別の keep-awake フォークでも可。import 名のみ合わせる）
-- `react-native-fs`（CSV 書き出し。デバッグ機能を使う場合のみ）
+- `react-native-geolocation-service` ^5.3.1
+- `@sayem314/react-native-keep-awake` ^1.4.0（画面常時点灯）
+- `react-native-fs` ^2.20.0（CSV 書き出し。デバッグ機能を使う場合のみ）
