@@ -4,9 +4,10 @@
 export interface Fix {
   latitude: number;
   longitude: number;
-  accuracy: number;     // 水平精度(m)
-  speed: number | null; // m/s。利用不可なら null / 負値
-  timestamp: number;    // ms (epoch)
+  accuracy: number;       // 水平精度(m)
+  speed: number | null;   // m/s。利用不可なら null / 負値
+  timestamp: number;      // ms (epoch)
+  activityStill?: boolean; // Activity Recognition が静止と判定
 }
 
 export interface OdometerConfig {
@@ -30,7 +31,8 @@ export type AddReason =
   | 'first_fix'         // 最初の点
   | 'non_monotonic'     // dt<=0
   | 'gap'               // 連続性が切れた(中断/GPSロスト)
-  | 'stationary'        // 停車(ドリフト除去)
+  | 'stationary'        // 停車(速度ゲート)
+  | 'activity_still'    // 停車(Activity Recognition 判定)
   | 'teleport'          // 異常ジャンプ除去
   | 'counted_speed'     // 速度積分で加算
   | 'counted_position'  // 位置ベースで加算
@@ -107,7 +109,13 @@ export class Odometer {
       const speed = cur.speed as number;
       if (speed < c.stopSpeedMps) {
         this.prev = cur;
-        return this.result('stationary', 0); // ドリフト除去
+        return this.result('stationary', 0);
+      }
+      // Activity Recognition が静止と判定し、かつ GPS 速度も低速域なら加算しない。
+      // 真に走行中（speed >= lowSpeedMps）の場合はスキップして位置ベースで加算する。
+      if (cur.activityStill && speed < c.lowSpeedMps) {
+        this.prev = cur;
+        return this.result('activity_still', 0);
       }
       const dPos = haversine(p, cur);
       const dSpeed = speed * dt;

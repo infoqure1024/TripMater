@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Geolocation from 'react-native-geolocation-service';
 import { AddReason, Fix, Odometer, OdometerConfig } from '../core/tripMeter';
 import { FixLogger } from '../core/fixLogger';
+import { useActivityRecognition } from './useActivityRecognition';
 
 interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積
@@ -16,6 +17,7 @@ const EMPTY_COUNTS: ReasonCounts = {};
 export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const { debug = false, config } = options;
   const odometerRef = useRef(new Odometer(config));
+  const activityStill = useActivityRecognition(active);
   const loggerRef = useRef(new FixLogger());
   const [meters, setMeters] = useState(0);
   const [speedKmh, setSpeedKmh] = useState(0);
@@ -42,6 +44,9 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
     odometerRef.current.setConfig(config ?? {});
   }, [config]);
 
+  const activityStillRef = useRef(activityStill);
+  useEffect(() => { activityStillRef.current = activityStill; }, [activityStill]);
+
   useEffect(() => {
     if (!active) return;
     const watchId = Geolocation.watchPosition(
@@ -52,6 +57,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
           accuracy: pos.coords.accuracy,
           speed: pos.coords.speed,
           timestamp: pos.timestamp,
+          activityStill: activityStillRef.current,
         };
         const result = odometerRef.current.add(fix);
         setMeters(result.total);

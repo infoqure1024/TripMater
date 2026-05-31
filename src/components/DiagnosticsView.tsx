@@ -38,9 +38,15 @@ const ROWS: { reason: AddReason; label: string; color: string; desc: string }[] 
   },
   {
     reason: 'stationary',
-    label: '停車除去',
+    label: '停車除去(速度)',
     color: '#FFB830',
     desc: '速度 < 0.5 m/s（≒ 1.8 km/h）で停車と判定。GPSドリフトによる誤加算を防ぐ本体。件数が多すぎる場合は stopSpeedMps を下げる。',
+  },
+  {
+    reason: 'activity_still',
+    label: '停車除去(AR)',
+    color: '#FFB830',
+    desc: 'Activity Recognition が静止（STILL）と判定し、かつ GPS 速度が低速域（< 10 km/h）の場合に加算しない。信号待ちなど GPS ドリフトが速度ゲートをすり抜けるケースを補完する。',
   },
   {
     reason: 'accuracy_gate',
