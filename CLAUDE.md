@@ -35,15 +35,21 @@ Android 中心、iOS でも動作する想定。
 再計算し、車のトリップメーター実測値（ground truth）と突き合わせて誤差最小の値を探す。
 CSV の `reason` 列で「どの判定が出たか」も追える。
 
+アプリ内では TUNING パネルから CSV を選択・実測値を入力して解析を実行できる。
+`gridSearch`（80 候補）で最適値を算出し、「適用」で `configStore` に保存。
+保存値は起動時に自動ロードされ、次回計測から反映される。「既定値に戻す」でリセット可。
+
 ## ファイル構成（src/features/odometer/）
 
-- `odometer.ts`         … 距離積算ロジック（RN 非依存）。`Odometer` クラス + `OdometerConfig`。`add()` は `AddReason` と加算距離を返す。
+- `odometer.ts`         … 距離積算ロジック（RN 非依存）。`Odometer` クラス + `OdometerConfig`。`add()` は `AddReason` と加算距離を返す。`setConfig()` で積算距離を保ったまま閾値を差し替え可能。
 - `fixLogger.ts`        … 生 fix + 判定結果を蓄積し CSV 出力（デバッグ用、RN 非依存）。
-- `useOdometer.ts`      … `watchPosition` と配線するフック。`reasonCounts`（reason 別件数）・距離・`speedKmh` を公開。
-- `logExport.ts`        … CSV をファイルに書き出す（`react-native-fs` 必要）。
-- `tuning.ts`           … オフライン解析（`parseCsv` / `replay` / `sweep`）。Node でも実行可。
-- `OdometerScreen.tsx`  … 計測画面 UI（暗色・計器盤風。開始/停止/リセット/CSV 出力）。DEV ビルドでは DIAGNOSTICS パネルを表示。
-- `DiagnosticsView.tsx` … reason 別件数のバーチャート + 「?」で説明モーダルを表示（DEV のみ）。
+- `useOdometer.ts`      … `watchPosition` と配線するフック。`config` prop 変更に追従。`reasonCounts`（reason 別件数）・距離・`speedKmh` を公開。
+- `logExport.ts`        … CSV をファイルに書き出す（`react-native-fs` 必要）。保存先: `ExternalDirectoryPath`（Android）/ `DocumentDirectoryPath`（iOS）。
+- `configStore.ts`      … `OdometerConfig` を JSON で端末に永続化（`DocumentDirectoryPath`）。`loadConfig` / `saveConfig` / `clearConfig`。
+- `tuning.ts`           … オフライン解析（RN 非依存、Node でも実行可）。`parseCsv` / `replayDetailed` / `sweepDetailed` / `sweep` / `gridSearch`。
+- `OdometerScreen.tsx`  … 計測画面 UI（暗色・計器盤風）。起動時に `configStore` から閾値をロード。DEV ビルドでは DIAGNOSTICS + TUNING を表示。
+- `DiagnosticsView.tsx` … reason 別件数のバーチャート + 「?」で全 reason 説明モーダル（DEV のみ）。
+- `TuningPanel.tsx`     … CSV 選択・実測値入力・`gridSearch` 実行・推奨値の適用／リセット UI（DEV のみ）。
 
 ## Android 設定（AndroidManifest.xml）
 
