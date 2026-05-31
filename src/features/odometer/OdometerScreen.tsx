@@ -19,6 +19,7 @@ import {
 import { useOdometer } from './useOdometer';
 import { writeCsvFile } from './logExport';
 import DiagnosticsView from './DiagnosticsView';
+import TuningPanel from './TuningPanel';
 
 const COLORS = {
   bg: '#0A0C10',
@@ -53,6 +54,7 @@ async function ensurePermission(): Promise<boolean> {
 export default function OdometerScreen() {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [tuningVisible, setTuningVisible] = useState(false);
   const startRef = useRef<number | null>(null);
 
   const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
@@ -171,13 +173,19 @@ export default function OdometerScreen() {
         <View style={styles.debug}>
           <View style={styles.debugRow}>
             <Text style={styles.debugText}>log: {logCount} 点</Text>
-            <Pressable onPress={handleExport} disabled={logCount === 0}>
-              <Text style={[styles.debugLink, { opacity: logCount === 0 ? 0.4 : 1 }]}>
-                CSV を書き出す
-              </Text>
-            </Pressable>
+            <View style={styles.debugActions}>
+              <Pressable onPress={() => setTuningVisible(true)}>
+                <Text style={styles.debugLink}>TUNING</Text>
+              </Pressable>
+              <Pressable onPress={handleExport} disabled={logCount === 0}>
+                <Text style={[styles.debugLink, { opacity: logCount === 0 ? 0.4 : 1, marginLeft: 16 }]}>
+                  CSV
+                </Text>
+              </Pressable>
+            </View>
           </View>
           <DiagnosticsView counts={reasonCounts} />
+          <TuningPanel visible={tuningVisible} onClose={() => setTuningVisible(false)} />
         </View>
       )}
     </View>
@@ -250,6 +258,10 @@ const styles = StyleSheet.create({
   debugRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  debugActions: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
   debugText: {
