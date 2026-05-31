@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 
 const SHEET_HEIGHT = Dimensions.get('window').height * 0.8;
-import { AddReason } from './tripMeter';
-import { ReasonCounts } from './useTripMeter';
+import { AddReason } from '../core/tripMeter';
+import { ReasonCounts } from '../hooks/useTripMeter';
 
 interface Props {
   counts: ReasonCounts;

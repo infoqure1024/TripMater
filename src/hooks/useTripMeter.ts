@@ -1,8 +1,8 @@
 // useOdometer.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Geolocation from 'react-native-geolocation-service';
-import { AddReason, Fix, Odometer, OdometerConfig } from './tripMeter';
-import { FixLogger } from './fixLogger';
+import { AddReason, Fix, Odometer, OdometerConfig } from '../core/tripMeter';
+import { FixLogger } from '../core/fixLogger';
 
 interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積

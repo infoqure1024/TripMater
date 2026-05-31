@@ -3,7 +3,7 @@
 // react-native-fs で JSON を 1 ファイル保存（依存追加なし）。
 // DocumentDirectoryPath はアプリ専用の内部領域（ユーザーには見えない・再起動後も残る）。
 import RNFS from 'react-native-fs';
-import { OdometerConfig } from './tripMeter';
+import { OdometerConfig } from '../core/tripMeter';
 
 const CONFIG_PATH = `${RNFS.DocumentDirectoryPath}/odometer_config.json`;
 

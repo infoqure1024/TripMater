@@ -16,12 +16,12 @@ import {
   activateKeepAwake,
   deactivateKeepAwake,
 } from '@sayem314/react-native-keep-awake';
-import { useOdometer } from './useTripMeter';
-import { writeCsvFile } from './logExport';
-import DiagnosticsView from './DiagnosticsView';
-import TuningPanel from './TuningPanel';
-import { OdometerConfig } from './tripMeter';
-import { clearConfig, loadConfig, saveConfig } from './configStore';
+import { useOdometer } from './hooks/useTripMeter';
+import { writeCsvFile } from './storage/logExport';
+import DiagnosticsView from './components/DiagnosticsView';
+import TuningPanel from './components/TuningPanel';
+import { OdometerConfig } from './core/tripMeter';
+import { clearConfig, loadConfig, saveConfig } from './storage/configStore';
 
 const COLORS = {
   bg: '#0A0C10',
