@@ -20,6 +20,8 @@ import { useOdometer } from './useOdometer';
 import { writeCsvFile } from './logExport';
 import DiagnosticsView from './DiagnosticsView';
 import TuningPanel from './TuningPanel';
+import { OdometerConfig } from './odometer';
+import { clearConfig, loadConfig, saveConfig } from './configStore';
 
 const COLORS = {
   bg: '#0A0C10',
@@ -55,11 +57,30 @@ export default function OdometerScreen() {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [tuningVisible, setTuningVisible] = useState(false);
+  const [config, setConfig] = useState<Partial<OdometerConfig>>({});
   const startRef = useRef<number | null>(null);
+
+  // 起動時に保存済みの閾値をロード
+  useEffect(() => {
+    loadConfig().then(setConfig);
+  }, []);
 
   const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
     debug: DEBUG,
+    config,
   });
+
+  const handleApplyConfig = async (next: Partial<OdometerConfig>) => {
+    await saveConfig(next);
+    setConfig(next);
+    setTuningVisible(false);
+    Alert.alert('閾値を適用しました', '次回以降の計測に反映されます。');
+  };
+
+  const handleResetConfig = async () => {
+    await clearConfig();
+    setConfig({});
+  };
 
   // 計測中は画面を常時点灯
   useEffect(() => {
@@ -185,7 +206,13 @@ export default function OdometerScreen() {
             </View>
           </View>
           <DiagnosticsView counts={reasonCounts} />
-          <TuningPanel visible={tuningVisible} onClose={() => setTuningVisible(false)} />
+          <TuningPanel
+            visible={tuningVisible}
+            onClose={() => setTuningVisible(false)}
+            currentConfig={config}
+            onApply={handleApplyConfig}
+            onResetConfig={handleResetConfig}
+          />
         </View>
       )}
     </View>

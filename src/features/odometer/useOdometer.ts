@@ -37,6 +37,11 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const getCsv = useCallback(() => loggerRef.current.toCsv(), []);
   const getEntries = useCallback(() => loggerRef.current.getEntries(), []);
 
+  // config が変わったら閾値を差し替える（積算済み距離は保持）
+  useEffect(() => {
+    odometerRef.current.setConfig(config ?? {});
+  }, [config]);
+
   useEffect(() => {
     if (!active) return;
     const watchId = Geolocation.watchPosition(

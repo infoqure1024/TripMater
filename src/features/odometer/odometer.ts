@@ -70,6 +70,15 @@ export class Odometer {
     this.totalMeters = 0;
   }
 
+  /** 閾値を差し替える。積算済み距離・連続性は保持する。 */
+  setConfig(config: Partial<OdometerConfig>): void {
+    this.cfg = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  getConfig(): OdometerConfig {
+    return { ...this.cfg };
+  }
+
   add(cur: Fix): AddResult {
     const c = this.cfg;
 

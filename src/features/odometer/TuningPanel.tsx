@@ -62,9 +62,19 @@ const C = {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  currentConfig: Partial<OdometerConfig>;
+  onApply: (config: Partial<OdometerConfig>) => void;
+  onResetConfig: () => void;
 }
 
-export default function TuningPanel({ visible, onClose }: Props) {
+function fmtConfig(cfg: Partial<OdometerConfig>): string {
+  const keys: (keyof OdometerConfig)[] = ['stopSpeedMps', 'maxAccuracyM', 'lowSpeedMps'];
+  return keys
+    .map(k => `${k}=${cfg[k] ?? DEFAULT_CONFIG[k]}`)
+    .join('  ');
+}
+
+export default function TuningPanel({ visible, onClose, currentConfig, onApply, onResetConfig }: Props) {
   const [files, setFiles] = useState<RNFS.ReadDirItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [groundTruth, setGroundTruth] = useState('');
@@ -153,8 +163,24 @@ export default function TuningPanel({ visible, onClose }: Props) {
           </View>
 
           <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
+            {/* 現在の閾値 */}
+            <Text style={styles.sectionTitle}>現在の閾値</Text>
+            <View style={styles.currentBox}>
+              <Text style={styles.currentText}>{fmtConfig(currentConfig)}</Text>
+              <View style={styles.currentFooter}>
+                <Text style={styles.currentTag}>
+                  {Object.keys(currentConfig).length > 0 ? 'カスタム' : '既定値'}
+                </Text>
+                {Object.keys(currentConfig).length > 0 && (
+                  <Pressable onPress={onResetConfig} hitSlop={8}>
+                    <Text style={styles.resetLink}>既定値に戻す</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+
             {/* ファイル選択 */}
-            <Text style={styles.sectionTitle}>CSV ファイル</Text>
+            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>CSV ファイル</Text>
             {files.length === 0 ? (
               <Text style={styles.empty}>保存された CSV がありません</Text>
             ) : (
@@ -221,6 +247,14 @@ export default function TuningPanel({ visible, onClose }: Props) {
                     </Text>
                   </View>
                 </View>
+
+                {/* 適用ボタン */}
+                <Pressable
+                  onPress={() => onApply(result.best.config)}
+                  style={({ pressed }) => [styles.applyBtn, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.applyBtnText}>この値を閾値として適用</Text>
+                </Pressable>
 
                 {/* sweep 表 */}
                 {result.sweeps.map(s => (
@@ -292,6 +326,11 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: 24 },
   sectionTitle: { color: C.dim, fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 8 },
   empty: { color: C.dim, fontSize: 12, marginBottom: 8 },
+  currentBox: { backgroundColor: C.surface, borderRadius: 10, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: C.border },
+  currentText: { color: C.text, fontSize: 11, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }) },
+  currentFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  currentTag: { color: C.dim, fontSize: 11, fontWeight: '700' },
+  resetLink: { color: C.warn, fontSize: 11, fontWeight: '700' },
   fileRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, backgroundColor: C.surface, borderRadius: 10, marginBottom: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: C.border },
   fileRowSelected: { borderColor: C.accent },
   fileName: { color: C.text, fontSize: 12, flex: 1, marginRight: 8 },
@@ -310,6 +349,8 @@ const styles = StyleSheet.create({
   bestResultRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   bestResultLabel: { color: C.dim, fontSize: 12 },
   bestResultVal: { color: C.text, fontSize: 14, fontWeight: '700' },
+  applyBtn: { height: 48, backgroundColor: C.accent, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  applyBtnText: { color: '#06140C', fontSize: 15, fontWeight: '800' },
   table: { backgroundColor: C.surface, borderRadius: 10, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: C.border },
   tableHeader: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   th: { color: C.dim, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
