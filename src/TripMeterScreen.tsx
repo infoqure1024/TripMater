@@ -46,11 +46,25 @@ function fmtTime(totalSec: number): string {
 
 async function ensurePermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
-  const res = await PermissionsAndroid.request(
+  const locRes = await PermissionsAndroid.request(
     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
     { title: '位置情報の許可', message: '走行距離の計測に使用します。', buttonPositive: 'OK' },
   );
-  return res === PermissionsAndroid.RESULTS.GRANTED;
+  if (locRes !== PermissionsAndroid.RESULTS.GRANTED) return false;
+
+  // Android 10(API 29)以上では活動認識の権限が必要。
+  // 拒否された場合でも速度ゲートで対応するため graceful degradation。
+  if (Platform.Version >= 29) {
+    await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION,
+      {
+        title: '活動認識の許可',
+        message: '停車中の GPS ドリフト除去に使用します（拒否しても計測は動作します）。',
+        buttonPositive: 'OK',
+      },
+    );
+  }
+  return true;
 }
 
 export default function OdometerScreen() {
