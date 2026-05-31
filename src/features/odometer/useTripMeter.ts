@@ -1,7 +1,7 @@
 // useOdometer.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Geolocation from 'react-native-geolocation-service';
-import { AddReason, Fix, Odometer, OdometerConfig } from './odometer';
+import { AddReason, Fix, Odometer, OdometerConfig } from './tripMeter';
 import { FixLogger } from './fixLogger';
 
 interface UseOdometerOptions {

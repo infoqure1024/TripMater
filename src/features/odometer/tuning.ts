@@ -1,7 +1,7 @@
 // tuning.ts
 // 記録した CSV を読み直し、閾値を変えて距離を再計算するオフライン解析用。
 // アプリ内でも Node スクリプトでも実行できる（React Native 非依存）。
-import { AddReason, Fix, Odometer, OdometerConfig, DEFAULT_CONFIG } from './odometer';
+import { AddReason, Fix, Odometer, OdometerConfig, DEFAULT_CONFIG } from './tripMeter';
 
 // ------------------------------------------------------------------ types --
 

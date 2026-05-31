@@ -2,7 +2,7 @@
 // watchPosition の生データとオドメーターの判定を記録し、CSV に出力する。
 // React Native 非依存（ファイル書き出しは logExport.ts 側に分離）。
 
-import { Fix, AddResult } from './odometer';
+import { Fix, AddResult } from './tripMeter';
 
 export interface LogEntry {
   timestamp: number;

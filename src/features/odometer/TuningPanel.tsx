@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import { Platform } from 'react-native';
-import { DEFAULT_CONFIG, OdometerConfig } from './odometer';
+import { DEFAULT_CONFIG, OdometerConfig } from './tripMeter';
 import { GridSearchResult, SweepRow, gridSearch, parseCsv, sweepDetailed } from './tuning';
 
 // ------------------------------------------------------------------ types --

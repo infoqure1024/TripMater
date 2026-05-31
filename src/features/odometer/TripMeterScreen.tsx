@@ -16,11 +16,11 @@ import {
   activateKeepAwake,
   deactivateKeepAwake,
 } from '@sayem314/react-native-keep-awake';
-import { useOdometer } from './useOdometer';
+import { useOdometer } from './useTripMeter';
 import { writeCsvFile } from './logExport';
 import DiagnosticsView from './DiagnosticsView';
 import TuningPanel from './TuningPanel';
-import { OdometerConfig } from './odometer';
+import { OdometerConfig } from './tripMeter';
 import { clearConfig, loadConfig, saveConfig } from './configStore';
 
 const COLORS = {
