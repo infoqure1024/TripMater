@@ -10,6 +10,7 @@ export interface LogEntry {
   longitude: number;
   accuracy: number;
   speed: number | null;
+  filteredSpeed: number | null; // カルマンフィルタ後の速度(m/s)
   cadenceS: number;      // 直前の記録からの実間隔(s) … 更新頻度の診断用
   reason: string;        // ライブ計測時の判定
   distanceAdded: number; // m
@@ -30,6 +31,7 @@ export class FixLogger {
       longitude: fix.longitude,
       accuracy: fix.accuracy,
       speed: fix.speed,
+      filteredSpeed: result.filteredSpeedMps,
       cadenceS,
       reason: result.reason,
       distanceAdded: result.distanceAdded,
@@ -53,7 +55,7 @@ export class FixLogger {
   toCsv(): string {
     const header = [
       'index', 'iso_time', 'timestamp_ms', 'cadence_s',
-      'lat', 'lng', 'accuracy_m', 'speed_mps',
+      'lat', 'lng', 'accuracy_m', 'speed_mps', 'filtered_speed_mps',
       'reason', 'distance_added_m', 'total_m',
     ].join(',');
     const rows = this.entries.map((e, i) =>
@@ -65,7 +67,8 @@ export class FixLogger {
         e.latitude.toFixed(7),
         e.longitude.toFixed(7),
         e.accuracy.toFixed(1),
-        e.speed == null ? '' : e.speed.toFixed(2),
+        e.speed == null ? '' : e.speed.toFixed(3),
+        e.filteredSpeed == null ? '' : e.filteredSpeed.toFixed(3),
         e.reason,
         e.distanceAdded.toFixed(2),
         e.total.toFixed(1),

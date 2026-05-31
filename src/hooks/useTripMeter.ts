@@ -61,7 +61,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         };
         const result = odometerRef.current.add(fix);
         setMeters(result.total);
-        setSpeedKmh(fix.speed != null && fix.speed > 0 ? fix.speed * 3.6 : 0);
+        setSpeedKmh(result.filteredSpeedMps != null ? result.filteredSpeedMps * 3.6 : 0);
         setReasonCounts(prev => ({
           ...prev,
           [result.reason]: (prev[result.reason] ?? 0) + 1,
