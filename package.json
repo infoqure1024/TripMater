@@ -1,5 +1,5 @@
 {
-  "name": "Odometer",
+  "name": "trip-meter",
   "version": "0.0.1",
   "private": true,
   "scripts": {
