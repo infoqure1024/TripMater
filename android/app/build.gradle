@@ -117,5 +117,8 @@ dependencies {
         implementation jscFlavor
     }
 
-    implementation 'com.google.android.gms:play-services-location:21.3.0'
+    // Activity Transition API 用。21.x は SettingsClient 等が class → interface に変わり、
+    // 18.x 前提でビルドされた react-native-geolocation-service 5.3.1 が実行時に
+    // IncompatibleClassChangeError でクラッシュするため 20.0.0 に固定する。
+    implementation 'com.google.android.gms:play-services-location:20.0.0'
 }
