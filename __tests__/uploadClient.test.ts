@@ -116,11 +116,31 @@ describe('HttpUploadClient.upload — request shape', () => {
     expect(opts.method).toBe('POST');
   });
 
-  test('strips trailing slash from baseUrl to avoid double slash', async () => {
+  test('strips single trailing slash from baseUrl to avoid double slash', async () => {
     const fetchMock = mockFetchResponse(200);
     global.fetch = fetchMock;
     await new HttpUploadClient(
       makeConfig({ baseUrl: 'https://api.example.com/', path: '/v2/gps' }),
+    ).upload([makeSample()]);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v2/gps');
+  });
+
+  test('strips multiple trailing slashes from baseUrl', async () => {
+    const fetchMock = mockFetchResponse(200);
+    global.fetch = fetchMock;
+    await new HttpUploadClient(
+      makeConfig({ baseUrl: 'https://api.example.com//', path: '/v2/gps' }),
+    ).upload([makeSample()]);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v2/gps');
+  });
+
+  test('adds leading slash to path when missing', async () => {
+    const fetchMock = mockFetchResponse(200);
+    global.fetch = fetchMock;
+    await new HttpUploadClient(
+      makeConfig({ baseUrl: 'https://api.example.com', path: 'v2/gps' }),
     ).upload([makeSample()]);
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.example.com/v2/gps');
