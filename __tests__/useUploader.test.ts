@@ -28,10 +28,12 @@ jest.mock('@react-native-community/netinfo', () => ({
     netInfoCallback = cb;
     return jest.fn(); // returns unsubscribe
   }),
+  fetch: jest.fn().mockResolvedValue({ isConnected: false, isInternetReachable: false }),
 }));
 
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import * as Keychain from 'react-native-keychain';
+import NetInfo from '@react-native-community/netinfo';
 import { useUploader } from '../src/hooks/useUploader';
 
 const keychainMock = Keychain as jest.Mocked<typeof Keychain>;
@@ -47,6 +49,8 @@ beforeEach(() => {
   const RNFS = require('react-native-fs');
   RNFS.exists.mockResolvedValue(false);
   RNFS.writeFile.mockResolvedValue(undefined);
+  // Restore default after clearAllMocks wipes the factory-set implementation
+  (NetInfo.fetch as jest.Mock).mockResolvedValue({ isConnected: false, isInternetReachable: false });
 });
 
 // ---------------------------------------------------------------------------
@@ -79,6 +83,12 @@ describe('useUploader – initial state', () => {
 // isOnline
 // ---------------------------------------------------------------------------
 describe('useUploader – isOnline', () => {
+  test('isOnline reflects initial fetch result immediately (no flicker)', async () => {
+    (NetInfo.fetch as jest.Mock).mockResolvedValue({ isConnected: true, isInternetReachable: true });
+    const { result } = await renderHook(() => useUploader());
+    await waitFor(() => expect(result.current.isOnline).toBe(true));
+  });
+
   test('isOnline becomes true when NetInfo reports connected + reachable', async () => {
     const { result } = await renderHook(() => useUploader());
     await act(async () => { emitNetInfo(true, true); });
