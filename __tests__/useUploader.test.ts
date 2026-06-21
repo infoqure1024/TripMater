@@ -49,6 +49,8 @@ beforeEach(() => {
   const RNFS = require('react-native-fs');
   RNFS.exists.mockResolvedValue(false);
   RNFS.writeFile.mockResolvedValue(undefined);
+  // Restore default after clearAllMocks wipes the factory-set implementation
+  (NetInfo.fetch as jest.Mock).mockResolvedValue({ isConnected: false, isInternetReachable: false });
 });
 
 // ---------------------------------------------------------------------------
