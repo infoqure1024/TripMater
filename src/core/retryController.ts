@@ -34,6 +34,7 @@ export type AuthErrorHandler = (status: number) => void;
 export class RetryController {
   private retryCount = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
   private readonly fullConfig: BackoffConfig;
 
   constructor(
@@ -46,6 +47,7 @@ export class RetryController {
 
   /** Feed upload events from BatchUploader.setListener into this method. */
   handleEvent(event: UploadEvent): void {
+    if (this.destroyed) { return; }
     if (event.type === 'success') {
       this.resetRetry();
     } else if (event.type === 'failure') {
@@ -67,6 +69,7 @@ export class RetryController {
 
   /** Call when NetInfo signals connectivity restored. */
   onConnectivityRestored(): void {
+    if (this.destroyed) { return; }
     this.cancelPendingRetry();
     this.retryCount = 0;
     this.uploader.flushNow().catch(() => { /* flush errors handled by BatchUploader */ });
@@ -74,6 +77,7 @@ export class RetryController {
 
   /** Call on service teardown to cancel any pending retry timer. */
   destroy(): void {
+    this.destroyed = true;
     this.cancelPendingRetry();
   }
 
