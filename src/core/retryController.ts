@@ -26,7 +26,7 @@ export function calculateBackoffMs(
   const exponential = config.baseDelayMs * Math.pow(2, attempt);
   const clamped = Math.min(exponential, config.maxDelayMs);
   const jitter = clamped * config.jitterFactor * (random() * 2 - 1);
-  return Math.max(0, Math.round(clamped + jitter));
+  return Math.min(config.maxDelayMs, Math.max(0, Math.round(clamped + jitter)));
 }
 
 export type AuthErrorHandler = (status: number) => void;

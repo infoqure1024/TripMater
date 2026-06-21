@@ -53,6 +53,13 @@ describe('calculateBackoffMs', () => {
     const extremeJitter: BackoffConfig = { ...cfg, jitterFactor: 2.0 };
     expect(calculateBackoffMs(0, extremeJitter, () => 0)).toBeGreaterThanOrEqual(0);
   });
+
+  test('result never exceeds maxDelayMs even with maximum positive jitter', () => {
+    const maxRandom = () => 1; // maximum positive jitter
+    // At high attempts, clamped=maxDelayMs; positive jitter should not push beyond it
+    expect(calculateBackoffMs(20, cfg, maxRandom)).toBeLessThanOrEqual(cfg.maxDelayMs);
+    expect(calculateBackoffMs(0, cfg, maxRandom)).toBeLessThanOrEqual(cfg.maxDelayMs);
+  });
 });
 
 // ---------------------------------------------------------------------------
