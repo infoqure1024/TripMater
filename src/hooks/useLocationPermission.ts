@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking, PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 
@@ -145,19 +145,23 @@ export function useLocationPermission() {
   const [permissionState, setPermissionState] =
     useState<LocationPermissionState>(INITIAL_STATE);
   const [isRequesting, setIsRequesting] = useState(false);
+  const isRequestingRef = useRef(false);
+  const permissionStateRef = useRef(permissionState);
+  useEffect(() => { permissionStateRef.current = permissionState; }, [permissionState]);
 
   const requestPermissions = useCallback(async (): Promise<LocationPermissionState> => {
-    if (isRequesting) { return permissionState; }
+    if (isRequestingRef.current) { return permissionStateRef.current; }
+    isRequestingRef.current = true;
     setIsRequesting(true);
     try {
       const result = await requestLocationPermissions();
       setPermissionState(result);
       return result;
     } finally {
+      isRequestingRef.current = false;
       setIsRequesting(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRequesting]);
+  }, []);
 
   const promptBackgroundSettings = useCallback(() => {
     const message = Platform.OS === 'ios'
