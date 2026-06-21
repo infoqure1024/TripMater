@@ -72,18 +72,22 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
   const fineLocation = mapAndroidResult(fineRaw);
 
   if (fineLocation !== 'granted') {
+    // notifications is 'denied' (skipped), not 'pending' (not yet asked).
     return buildState({
       fineLocation,
       backgroundLocation: 'denied',
-      notifications: 'pending',
+      notifications: 'denied',
     });
   }
+
+  const apiLevel = Number(Platform.Version);
 
   // Step 2: ACCESS_BACKGROUND_LOCATION (API 29+)
   // Must be requested separately after fine location; cannot batch with fine.
   // On API 30+ the system routes the user directly to the Settings page.
+  // Pre-API 29: no separate background permission — fine location covers background access.
   let backgroundLocation: PermissionStatus = 'granted';
-  if (Number(Platform.Version) >= 29) {
+  if (apiLevel >= 29) {
     const bgRaw = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
       {
@@ -98,8 +102,9 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
   }
 
   // Step 3: POST_NOTIFICATIONS (API 33+)
+  // Pre-API 33: notifications don't require runtime permission.
   let notifications: PermissionStatus = 'granted';
-  if (Number(Platform.Version) >= 33) {
+  if (apiLevel >= 33) {
     const notifRaw = await PermissionsAndroid.request(
       'android.permission.POST_NOTIFICATIONS' as never,
     );
@@ -119,6 +124,7 @@ export function useLocationPermission() {
   const [isRequesting, setIsRequesting] = useState(false);
 
   const requestPermissions = useCallback(async (): Promise<LocationPermissionState> => {
+    if (isRequesting) { return permissionState; }
     setIsRequesting(true);
     try {
       const result = await requestLocationPermissions();
@@ -127,7 +133,8 @@ export function useLocationPermission() {
     } finally {
       setIsRequesting(false);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRequesting]);
 
   const promptBackgroundSettings = useCallback(() => {
     Alert.alert(

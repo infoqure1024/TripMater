@@ -24,11 +24,18 @@
         android:name=".ActivityTransitionReceiver"
         android:exported="false" />
 
-      <!-- Placeholder for Foreground Service (implemented in Issue #7) -->
+      <!--
+        LocationForegroundService will be implemented in Issue #7.
+        The manifest entry is added here so the build does not fail when the
+        class is created; the service is never started until Issue #7 lands.
+        TODO(#7): remove this comment once the Kotlin class exists.
+      -->
+      <!--
       <service
         android:name=".LocationForegroundService"
         android:foregroundServiceType="location"
         android:exported="false" />
+      -->
 
       <activity
         android:name=".MainActivity"

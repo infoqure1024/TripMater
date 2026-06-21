@@ -1,9 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import { requestLocationPermissions } from '../src/hooks/useLocationPermission';
 
-const mockRequest = jest.fn();
-const mockOpenSettings = jest.fn();
-
 jest.mock('react-native', () => ({
   PermissionsAndroid: {
     PERMISSIONS: {
@@ -38,12 +35,11 @@ function setPlatformIOS() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (PermissionsAndroid.request as jest.Mock).mockReset();
   setAndroidVersion(30);
 });
 
 describe('fine location denied – stops early', () => {
-  test('returns canUseLocation=false and skips background/notification requests when fine denied', async () => {
+  test('returns canUseLocation=false, skips background/notification requests, notifications=denied when fine denied', async () => {
     (PermissionsAndroid.request as jest.Mock).mockResolvedValueOnce('denied');
 
     const result = await requestLocationPermissions();
@@ -52,6 +48,8 @@ describe('fine location denied – stops early', () => {
     expect(result.canUseLocation).toBe(false);
     expect(result.backgroundLocation).toBe('denied');
     expect(result.canUseBackground).toBe(false);
+    expect(result.notifications).toBe('denied');
+    expect(result.canShowNotifications).toBe(false);
     expect(PermissionsAndroid.request).toHaveBeenCalledTimes(1);
     expect(PermissionsAndroid.request).toHaveBeenCalledWith(
       'android.permission.ACCESS_FINE_LOCATION',
@@ -59,13 +57,15 @@ describe('fine location denied – stops early', () => {
     );
   });
 
-  test('returns canUseLocation=false when fine location is never_ask_again', async () => {
+  test('returns canUseLocation=false and notifications=denied when fine location is never_ask_again', async () => {
     (PermissionsAndroid.request as jest.Mock).mockResolvedValueOnce('never_ask_again');
 
     const result = await requestLocationPermissions();
 
     expect(result.fineLocation).toBe('never_ask_again');
     expect(result.canUseLocation).toBe(false);
+    expect(result.notifications).toBe('denied');
+    expect(result.canShowNotifications).toBe(false);
     expect(PermissionsAndroid.request).toHaveBeenCalledTimes(1);
   });
 });
@@ -125,6 +125,26 @@ describe('background location – API 29+ separate request', () => {
     expect(result.backgroundLocation).toBe('never_ask_again');
     expect(result.canUseBackground).toBe(false);
   });
+
+  test('still requests POST_NOTIFICATIONS on API 33 even when background is denied', async () => {
+    setAndroidVersion(33);
+    (PermissionsAndroid.request as jest.Mock)
+      .mockResolvedValueOnce('granted')          // fine
+      .mockResolvedValueOnce('denied')           // background denied
+      .mockResolvedValueOnce('granted');         // notifications
+
+    const result = await requestLocationPermissions();
+
+    expect(result.backgroundLocation).toBe('denied');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.notifications).toBe('granted');
+    expect(result.canShowNotifications).toBe(true);
+    expect(PermissionsAndroid.request).toHaveBeenCalledTimes(3);
+    expect(PermissionsAndroid.request).toHaveBeenNthCalledWith(
+      3,
+      'android.permission.POST_NOTIFICATIONS',
+    );
+  });
 });
 
 describe('POST_NOTIFICATIONS – API 33+', () => {
@@ -172,6 +192,19 @@ describe('POST_NOTIFICATIONS – API 33+', () => {
     expect(result.canShowNotifications).toBe(false);
     expect(result.canUseLocation).toBe(true);
     expect(result.canUseBackground).toBe(true);
+  });
+
+  test('sets canShowNotifications=false when notifications is never_ask_again', async () => {
+    setAndroidVersion(33);
+    (PermissionsAndroid.request as jest.Mock)
+      .mockResolvedValueOnce('granted')
+      .mockResolvedValueOnce('granted')
+      .mockResolvedValueOnce('never_ask_again');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.notifications).toBe('never_ask_again');
+    expect(result.canShowNotifications).toBe(false);
   });
 });
 
