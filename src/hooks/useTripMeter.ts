@@ -99,7 +99,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
       Geolocation.clearWatch(watchId);
       setSpeedKmh(0);
     };
-  }, [active, debug]);
+  }, [active, debug, fgs]);
 
   return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries, reasonCounts };
 }

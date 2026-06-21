@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -37,6 +38,8 @@ class LocationForegroundService : Service() {
         getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     }
 
+    private var isForegrounded = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -49,20 +52,42 @@ class LocationForegroundService : Service() {
             ACTION_START -> {
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "走行計測中"
                 val text  = intent.getStringExtra(EXTRA_TEXT)  ?: "計測を継続しています"
-                startForeground(NOTIFICATION_ID, buildNotification(title, text))
+                callStartForeground(buildNotification(title, text))
             }
             ACTION_UPDATE -> {
+                // Ignore if not already foregrounded — avoids FGS timeout when the
+                // service is reached via startService without a preceding ACTION_START.
+                if (!isForegrounded) return START_STICKY
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "走行計測中"
                 val text  = intent.getStringExtra(EXTRA_TEXT)  ?: ""
                 notificationManager.notify(NOTIFICATION_ID, buildNotification(title, text))
             }
             ACTION_STOP -> {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                isForegrounded = false
                 stopSelf()
+            }
+            else -> {
+                // START_STICKY restart delivers null intent — must call startForeground
+                // within 5 s or Android raises ForegroundServiceDidNotStartInTimeException.
+                callStartForeground(buildNotification("走行計測中", "計測を継続しています"))
             }
         }
         return START_STICKY
+    }
+
+    private fun callStartForeground(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        isForegrounded = true
     }
 
     private fun createNotificationChannel() {
@@ -80,9 +105,8 @@ class LocationForegroundService : Service() {
     }
 
     private fun buildNotification(title: String, text: String): Notification {
-        val launchIntent = packageManager
-            .getLaunchIntentForPackage(packageName)
-            ?.apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP }
+        val launchIntent = (packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent()).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP }
         val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else
