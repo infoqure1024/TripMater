@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
@@ -19,6 +23,19 @@
       <receiver
         android:name=".ActivityTransitionReceiver"
         android:exported="false" />
+
+      <!--
+        LocationForegroundService will be implemented in Issue #7.
+        The manifest entry is added here so the build does not fail when the
+        class is created; the service is never started until Issue #7 lands.
+        TODO(#7): remove this comment once the Kotlin class exists.
+      -->
+      <!--
+      <service
+        android:name=".LocationForegroundService"
+        android:foregroundServiceType="location"
+        android:exported="false" />
+      -->
 
       <activity
         android:name=".MainActivity"
