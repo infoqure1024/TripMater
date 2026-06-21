@@ -56,7 +56,15 @@ export function UploadSettingsPanel({ onConfigSaved }: Props): React.JSX.Element
   }, []);
 
   const validate = (): string | null => {
-    if (!form.baseUrl.startsWith('http')) { return 'URL は http:// または https:// で始めてください'; }
+    try {
+      const u = new URL(form.baseUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+        return 'URL は http:// または https:// で始めてください';
+      }
+    } catch {
+      return 'URL の形式が正しくありません（例: https://example.com）';
+    }
+    if (!form.path.startsWith('/')) { return 'パスは / で始めてください（例: /api/v1/locations）'; }
     const bs = Number(form.batchSize);
     if (!Number.isInteger(bs) || bs < 1) { return 'バッチサイズは 1 以上の整数にしてください'; }
     const fi = Number(form.flushIntervalMs);

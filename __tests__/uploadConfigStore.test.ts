@@ -185,6 +185,11 @@ describe('saveToken / loadToken', () => {
   test('loadToken returns empty string when nothing is stored', async () => {
     expect(await loadToken()).toBe('');
   });
+
+  test('loadToken returns empty string when Keychain.getGenericPassword throws', async () => {
+    keychainMock.getGenericPassword.mockRejectedValueOnce(new Error('HSM error'));
+    expect(await loadToken()).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
