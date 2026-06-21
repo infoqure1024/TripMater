@@ -4,6 +4,7 @@ import Geolocation from 'react-native-geolocation-service';
 import { AddReason, Fix, Odometer, OdometerConfig } from '../core/tripMeter';
 import { FixLogger } from '../core/fixLogger';
 import { useActivityRecognition } from './useActivityRecognition';
+import { useForegroundService } from './useForegroundService';
 
 interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積
@@ -23,6 +24,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const [speedKmh, setSpeedKmh] = useState(0);
   const [logCount, setLogCount] = useState(0);
   const [reasonCounts, setReasonCounts] = useState<ReasonCounts>(EMPTY_COUNTS);
+  const { start: fgsStart, stop: fgsStop, updateNotification: fgsUpdateNotification } = useForegroundService();
 
   const reset = useCallback(() => {
     odometerRef.current.reset();
@@ -47,6 +49,15 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const activityStillRef = useRef(activityStill);
   useEffect(() => { activityStillRef.current = activityStill; }, [activityStill]);
 
+  // FGS ライフサイクル: 計測開始でサービス起動 → 停止でサービス終了
+  useEffect(() => {
+    if (active) {
+      fgsStart('走行計測中', '計測を継続しています');
+    } else {
+      fgsStop();
+    }
+  }, [active, fgsStart, fgsStop]);
+
   useEffect(() => {
     if (!active) return;
     const watchId = Geolocation.watchPosition(
@@ -62,6 +73,9 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         const result = odometerRef.current.add(fix);
         setMeters(result.total);
         setSpeedKmh(result.filteredSpeedMps != null ? result.filteredSpeedMps * 3.6 : 0);
+        // 通知に走行距離をリアルタイム反映
+        const km = (result.total / 1000).toFixed(2);
+        fgsUpdateNotification('走行計測中', `走行距離: ${km} km`);
         setReasonCounts(prev => ({
           ...prev,
           [result.reason]: (prev[result.reason] ?? 0) + 1,
@@ -85,7 +99,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
       Geolocation.clearWatch(watchId);
       setSpeedKmh(0);
     };
-  }, [active, debug]);
+  }, [active, debug, fgsUpdateNotification]);
 
   return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries, reasonCounts };
 }
