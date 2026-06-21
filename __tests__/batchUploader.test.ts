@@ -255,5 +255,6 @@ describe('inflight guard', () => {
     await flush;
 
     expect(client.upload).toHaveBeenCalledTimes(1);
+    expect(await queue.count()).toBe(0);
   });
 });

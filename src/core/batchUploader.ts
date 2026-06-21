@@ -75,6 +75,10 @@ export class BatchUploader {
     this.inflight = true;
     try {
       await this.flushLoop();
+    } catch (e) {
+      // Absorb unexpected errors (e.g. queue storage throws) so the timer
+      // callback's fire-and-forget invocation never becomes an unhandled rejection.
+      this.listener?.({ type: 'error', error: e as Error });
     } finally {
       this.inflight = false;
     }
