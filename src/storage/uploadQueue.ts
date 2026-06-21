@@ -47,9 +47,13 @@ export class UploadQueue {
 
   private ensureInit(): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = this.storage.load().then(items => {
-        this.items = items;
-      });
+      this.initPromise = this.storage.load()
+        .then(items => { this.items = items; })
+        .catch(e => {
+          // Allow retry on next call rather than permanently bricking the queue.
+          this.initPromise = null;
+          throw e;
+        });
     }
     return this.initPromise;
   }

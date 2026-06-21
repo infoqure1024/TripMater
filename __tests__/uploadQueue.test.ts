@@ -257,6 +257,37 @@ describe('save failure rollback', () => {
     // 'a' must still be in memory after rollback
     expect(await q.count()).toBe(2);
   });
+
+  test('prune rolls back in-memory state when save fails', async () => {
+    const storage = new FailingStorage();
+    const q = new UploadQueue(storage);
+    for (const id of ['a', 'b', 'c']) { await q.enqueue(makeSample(id)); }
+    storage.shouldFail = true;
+    await expect(q.prune(1)).rejects.toThrow('disk full');
+    expect(await q.count()).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Init failure resilience
+// ---------------------------------------------------------------------------
+describe('init failure resilience', () => {
+  test('queue retries load after a transient storage.load() failure', async () => {
+    let callCount = 0;
+    const flakyStorage: QueueStorage = {
+      async load() {
+        callCount++;
+        if (callCount === 1) { throw new Error('transient read error'); }
+        return [];
+      },
+      async save() {},
+    };
+    const q = new UploadQueue(flakyStorage);
+    await expect(q.count()).rejects.toThrow('transient read error');
+    // Second call should retry the load and succeed
+    expect(await q.count()).toBe(0);
+    expect(callCount).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
