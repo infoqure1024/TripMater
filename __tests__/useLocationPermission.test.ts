@@ -1,4 +1,5 @@
 import { PermissionsAndroid, Platform } from 'react-native';
+import Geolocation from 'react-native-geolocation-service';
 import { requestLocationPermissions } from '../src/hooks/useLocationPermission';
 
 jest.mock('react-native', () => ({
@@ -22,6 +23,11 @@ jest.mock('react-native', () => ({
     Version: 30,
     select: jest.fn((obj: Record<string, unknown>) => obj.android),
   },
+}));
+
+jest.mock('react-native-geolocation-service', () => ({
+  __esModule: true,
+  default: { requestAuthorization: jest.fn() },
 }));
 
 function setAndroidVersion(version: number) {
@@ -229,15 +235,76 @@ describe('full grant path', () => {
   });
 });
 
-describe('non-Android platform', () => {
-  test('returns all-granted on iOS without making any Android requests', async () => {
+describe('iOS permission flow', () => {
+  const geoAuthMock = Geolocation.requestAuthorization as jest.Mock;
+
+  beforeEach(() => {
     setPlatformIOS();
+    geoAuthMock.mockReset();
+  });
+
+  test('full grant: whenInUse then always → canUseLocation and canUseBackground true', async () => {
+    geoAuthMock
+      .mockResolvedValueOnce('granted')   // whenInUse
+      .mockResolvedValueOnce('granted');  // always
 
     const result = await requestLocationPermissions();
 
+    expect(result.fineLocation).toBe('granted');
+    expect(result.backgroundLocation).toBe('granted');
     expect(result.canUseLocation).toBe(true);
     expect(result.canUseBackground).toBe(true);
     expect(result.canShowNotifications).toBe(true);
+    expect(geoAuthMock).toHaveBeenCalledTimes(2);
+    expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
+    expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
     expect(PermissionsAndroid.request).not.toHaveBeenCalled();
+  });
+
+  test('whenInUse denied → stops early, canUseLocation false, no always request', async () => {
+    geoAuthMock.mockResolvedValueOnce('denied');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('denied');
+    expect(result.canUseLocation).toBe(false);
+    expect(result.backgroundLocation).toBe('denied');
+    expect(result.canUseBackground).toBe(false);
+    expect(geoAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('whenInUse disabled (location services off) → maps to never_ask_again', async () => {
+    geoAuthMock.mockResolvedValueOnce('disabled');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('never_ask_again');
+    expect(result.canUseLocation).toBe(false);
+    expect(geoAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('whenInUse restricted (parental control) → maps to never_ask_again', async () => {
+    geoAuthMock.mockResolvedValueOnce('restricted');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('never_ask_again');
+    expect(result.canUseLocation).toBe(false);
+    expect(geoAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('always denied after whenInUse granted → foreground-only, canUseBackground false', async () => {
+    geoAuthMock
+      .mockResolvedValueOnce('granted')
+      .mockResolvedValueOnce('denied');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('granted');
+    expect(result.canUseLocation).toBe(true);
+    expect(result.backgroundLocation).toBe('denied');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true);
+    expect(geoAuthMock).toHaveBeenCalledTimes(2);
   });
 });

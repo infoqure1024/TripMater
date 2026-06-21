@@ -1,5 +1,6 @@
 // useOdometer.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 import { AddReason, Fix, Odometer, OdometerConfig } from '../core/tripMeter';
 import { FixLogger } from '../core/fixLogger';
@@ -15,7 +16,7 @@ interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積
   config?: Partial<OdometerConfig>; // 閾値の上書き
   deviceId?: string;                // upload sample device identifier
-  onCountedFix?: (sample: LocationSample) => void; // called for every fix that adds distance
+  onCountedFix?: (sample: LocationSample) => Promise<void>; // called for every fix that adds distance
 }
 
 export type ReasonCounts = Partial<Record<AddReason, number>>;
@@ -126,6 +127,9 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         fastestInterval: 500, // Android
         forceRequestLocation: true,
         showLocationDialog: true,
+        // iOS: enable background location continuation
+        allowsBackgroundLocationUpdates: Platform.OS === 'ios',
+        pausesLocationUpdatesAutomatically: false,
       },
     );
     return () => {
