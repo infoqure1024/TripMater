@@ -13,7 +13,7 @@ export class HttpUploadClient implements UploadClient {
   constructor(private readonly config: UploadClientConfig) {}
 
   async upload(batch: LocationSample[]): Promise<UploadResult> {
-    const url = `${this.config.baseUrl}${this.config.path}`;
+    const url = `${this.config.baseUrl.replace(/\/$/, '')}${this.config.path}`;
     const envelope: UploadEnvelope = { schemaVersion: SCHEMA_VERSION, samples: batch };
     const controller = new AbortController();
     const timer = setTimeout(
