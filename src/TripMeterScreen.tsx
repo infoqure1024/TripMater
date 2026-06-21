@@ -17,9 +17,11 @@ import {
   deactivateKeepAwake,
 } from '@sayem314/react-native-keep-awake';
 import { useOdometer } from './hooks/useTripMeter';
+import { useUploader } from './hooks/useUploader';
 import { writeCsvFile } from './storage/logExport';
 import DiagnosticsView from './components/DiagnosticsView';
 import TuningPanel from './components/TuningPanel';
+import { UploadStatusBar } from './components/UploadStatusBar';
 import { OdometerConfig } from './core/tripMeter';
 import { clearConfig, loadConfig, saveConfig } from './storage/configStore';
 
@@ -79,9 +81,12 @@ export default function OdometerScreen() {
     loadConfig().then(setConfig);
   }, []);
 
+  const uploader = useUploader();
+
   const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
     debug: DEBUG,
     config,
+    onCountedFix: uploader.enqueue,
   });
 
   const handleApplyConfig = async (next: Partial<OdometerConfig>) => {
@@ -178,6 +183,16 @@ export default function OdometerScreen() {
           <Text style={styles.statValue}>{fmtTime(elapsed)}</Text>
         </View>
       </View>
+
+      {/* 送信ステータス */}
+      <UploadStatusBar
+        uploadEnabled={uploader.uploadEnabled}
+        isOnline={uploader.isOnline}
+        pendingCount={uploader.pendingCount}
+        lastSentAt={uploader.lastSentAt}
+        authError={uploader.authError}
+        onToggle={uploader.toggleUpload}
+      />
 
       {/* 操作 */}
       <View style={styles.controls}>
