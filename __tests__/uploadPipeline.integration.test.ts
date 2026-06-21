@@ -385,17 +385,20 @@ describe('duplicate id / ack failure idempotency', () => {
 // Issue #29: non-retryable 4xx (422) — no retry, periodic timer re-flushes
 // ---------------------------------------------------------------------------
 describe('non-retryable 4xx handling', () => {
-  beforeEach(() => jest.useFakeTimers());
+  let testUploader: BatchUploader | undefined;
+  beforeEach(() => { testUploader = undefined; jest.useFakeTimers(); });
+  afterEach(() => { testUploader?.stop(); });
 
   test('422 triggers no retry; periodic timer re-flushes after flushIntervalMs', async () => {
     const storage = new InMemoryStorage();
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({ status: 422 })
       .mockResolvedValue({ status: 200 });
-    const { queue, uploader } = makePipeline(storage, fetchMock, {
+    const { queue, uploader, onAuthError } = makePipeline(storage, fetchMock, {
       backoffMs: 2000,       // backoff delay intentionally long — confirms no retry fires
       flushIntervalMs: 1000,
     });
+    testUploader = uploader;
 
     await queue.enqueue(makeSample('a'));
     uploader.start();
@@ -404,6 +407,7 @@ describe('non-retryable 4xx handling', () => {
     await uploader.flushNow();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await queue.count()).toBe(1);
+    expect(onAuthError).not.toHaveBeenCalled(); // 422 must not route to auth-error branch
 
     // No retry fires within the backoff window (no timer was scheduled)
     await jest.advanceTimersByTimeAsync(500);
@@ -413,8 +417,6 @@ describe('non-retryable 4xx handling', () => {
     await jest.advanceTimersByTimeAsync(500);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await queue.count()).toBe(0);
-
-    uploader.stop();
   });
 });
 
@@ -422,7 +424,9 @@ describe('non-retryable 4xx handling', () => {
 // Issue #30: maxRetries exhaustion — counter resets, periodic timer re-flushes
 // ---------------------------------------------------------------------------
 describe('maxRetries exhaustion', () => {
-  beforeEach(() => jest.useFakeTimers());
+  let testUploader: BatchUploader | undefined;
+  beforeEach(() => { testUploader = undefined; jest.useFakeTimers(); });
+  afterEach(() => { testUploader?.stop(); });
 
   test('after maxRetries 5xx failures retryCount resets and periodic timer re-flushes', async () => {
     const storage = new InMemoryStorage();
@@ -431,11 +435,12 @@ describe('maxRetries exhaustion', () => {
       .mockResolvedValueOnce({ status: 500 }) // retry 1
       .mockResolvedValueOnce({ status: 500 }) // retry 2 = maxRetries → exhausted
       .mockResolvedValue({ status: 200 });    // periodic timer flush
-    const { queue, uploader } = makePipeline(storage, fetchMock, {
+    const { queue, uploader, retry } = makePipeline(storage, fetchMock, {
       maxRetries: 2,
       backoffMs: 100,        // retry 1 at +100ms, retry 2 at +200ms (exponential)
       flushIntervalMs: 1000,
     });
+    testUploader = uploader;
 
     await queue.enqueue(makeSample('a'));
     uploader.start();
@@ -453,6 +458,7 @@ describe('maxRetries exhaustion', () => {
     await jest.advanceTimersByTimeAsync(200);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(await queue.count()).toBe(1); // items not consumed
+    expect(retry.pendingRetryCount).toBe(0); // counter was reset
 
     // No retry timer — advancing well past any backoff delay has no effect
     await jest.advanceTimersByTimeAsync(300); // 600ms total
@@ -462,8 +468,6 @@ describe('maxRetries exhaustion', () => {
     await jest.advanceTimersByTimeAsync(400); // 1000ms total
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(await queue.count()).toBe(0);
-
-    uploader.stop();
   });
 });
 
