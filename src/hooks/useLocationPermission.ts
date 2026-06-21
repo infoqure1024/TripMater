@@ -63,7 +63,7 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
     const whenInUseRaw = await Geolocation.requestAuthorization('whenInUse');
     const fineLocation = mapIosResult(whenInUseRaw);
     if (fineLocation !== 'granted') {
-      return buildState({ fineLocation, backgroundLocation: 'denied', notifications: 'granted' });
+      return buildState({ fineLocation, backgroundLocation: fineLocation, notifications: 'granted' });
     }
     // Step 2: Upgrade to "Always" for background location continuation
     const alwaysRaw = await Geolocation.requestAuthorization('always');
@@ -160,10 +160,14 @@ export function useLocationPermission() {
   }, [isRequesting]);
 
   const promptBackgroundSettings = useCallback(() => {
+    const message = Platform.OS === 'ios'
+      ? '「設定 > プライバシーとセキュリティ > 位置情報サービス > trip meter > 常に許可」を選択してください。\n' +
+        'この設定がないとロック画面・別アプリ使用中の計測が停止します。'
+      : '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
+        'この設定がないとロック画面・別アプリ使用中の計測が停止します。';
     Alert.alert(
       'バックグラウンド位置情報',
-      '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
-        'この設定がないとロック画面・別アプリ使用中の計測が停止します。',
+      message,
       [
         { text: 'キャンセル', style: 'cancel' },
         { text: '設定を開く', onPress: openAppSettings },

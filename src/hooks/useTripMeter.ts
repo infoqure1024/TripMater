@@ -1,6 +1,5 @@
 // useOdometer.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 import { AddReason, Fix, Odometer, OdometerConfig } from '../core/tripMeter';
 import { FixLogger } from '../core/fixLogger';
@@ -127,9 +126,6 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         fastestInterval: 500, // Android
         forceRequestLocation: true,
         showLocationDialog: true,
-        // iOS: enable background location continuation
-        allowsBackgroundLocationUpdates: Platform.OS === 'ios',
-        pausesLocationUpdatesAutomatically: false,
       },
     );
     return () => {
