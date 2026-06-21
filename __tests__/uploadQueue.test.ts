@@ -209,6 +209,57 @@ describe('prune', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Concurrent init safety
+// ---------------------------------------------------------------------------
+describe('concurrent init safety', () => {
+  test('two concurrent enqueues before init both persist their items', async () => {
+    const storage = new InMemoryStorage();
+    const q = new UploadQueue(storage);
+    // Fire both without awaiting either — concurrent init race condition
+    await Promise.all([q.enqueue(makeSample('a')), q.enqueue(makeSample('b'))]);
+    expect(await q.count()).toBe(2);
+    const ids = (await q.peekBatch(10)).map(s => s.id).sort();
+    expect(ids).toEqual(['a', 'b']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Save failure rollback
+// ---------------------------------------------------------------------------
+describe('save failure rollback', () => {
+  class FailingStorage extends InMemoryStorage {
+    shouldFail = false;
+    async save(items: LocationSample[]): Promise<void> {
+      if (this.shouldFail) { throw new Error('disk full'); }
+      return super.save(items);
+    }
+  }
+
+  test('enqueue rolls back in-memory state when save fails', async () => {
+    const storage = new FailingStorage();
+    const q = new UploadQueue(new InMemoryStorage()); // use clean queue
+    const q2 = new UploadQueue(storage);
+    await q2.enqueue(makeSample('a')); // succeeds
+    storage.shouldFail = true;
+    await expect(q2.enqueue(makeSample('b'))).rejects.toThrow('disk full');
+    expect(await q2.count()).toBe(1); // 'b' rolled back
+    const ids = (await q2.peekBatch(10)).map(s => s.id);
+    expect(ids).toEqual(['a']);
+  });
+
+  test('ack rolls back in-memory state when save fails', async () => {
+    const storage = new FailingStorage();
+    const q = new UploadQueue(storage);
+    await q.enqueue(makeSample('a'));
+    await q.enqueue(makeSample('b'));
+    storage.shouldFail = true;
+    await expect(q.ack(['a'])).rejects.toThrow('disk full');
+    // 'a' must still be in memory after rollback
+    expect(await q.count()).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Persistence (cross-instance survival)
 // ---------------------------------------------------------------------------
 describe('persistence', () => {

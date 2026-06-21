@@ -39,20 +39,30 @@ export class FsQueueStorage implements QueueStorage {
 
 export class UploadQueue {
   private items: LocationSample[] = [];
-  private initialized = false;
+  // Single shared promise prevents concurrent callers from each issuing a
+  // storage.load() and overwriting each other's in-flight mutations.
+  private initPromise: Promise<void> | null = null;
 
   constructor(private readonly storage: QueueStorage) {}
 
-  private async ensureInit(): Promise<void> {
-    if (this.initialized) { return; }
-    this.items = await this.storage.load();
-    this.initialized = true;
+  private ensureInit(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.storage.load().then(items => {
+        this.items = items;
+      });
+    }
+    return this.initPromise;
   }
 
   async enqueue(sample: LocationSample): Promise<void> {
     await this.ensureInit();
     this.items.push(sample);
-    await this.storage.save(this.items);
+    try {
+      await this.storage.save(this.items);
+    } catch (e) {
+      this.items.pop();
+      throw e;
+    }
   }
 
   async peekBatch(limit: number): Promise<LocationSample[]> {
@@ -63,8 +73,14 @@ export class UploadQueue {
   async ack(ids: string[]): Promise<void> {
     await this.ensureInit();
     const idSet = new Set(ids);
+    const prev = this.items;
     this.items = this.items.filter(s => !idSet.has(s.id));
-    await this.storage.save(this.items);
+    try {
+      await this.storage.save(this.items);
+    } catch (e) {
+      this.items = prev;
+      throw e;
+    }
   }
 
   async count(): Promise<number> {
@@ -78,8 +94,14 @@ export class UploadQueue {
     await this.ensureInit();
     const excess = this.items.length - maxSize;
     if (excess <= 0) { return 0; }
+    const prev = this.items;
     this.items = this.items.slice(excess);
-    await this.storage.save(this.items);
+    try {
+      await this.storage.save(this.items);
+    } catch (e) {
+      this.items = prev;
+      throw e;
+    }
     return excess;
   }
 }
