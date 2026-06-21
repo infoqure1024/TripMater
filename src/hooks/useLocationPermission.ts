@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Alert, Linking, PermissionsAndroid, Platform } from 'react-native';
+import Geolocation from 'react-native-geolocation-service';
 
 export type PermissionStatus = 'granted' | 'denied' | 'never_ask_again' | 'pending';
 
@@ -23,6 +24,12 @@ const INITIAL_STATE: LocationPermissionState = {
   canUseBackground: false,
   canShowNotifications: false,
 };
+
+function mapIosResult(result: string): PermissionStatus {
+  if (result === 'granted') { return 'granted'; }
+  if (result === 'disabled' || result === 'restricted') { return 'never_ask_again'; }
+  return 'denied';
+}
 
 function mapAndroidResult(result: string): PermissionStatus {
   if (result === PermissionsAndroid.RESULTS.GRANTED) { return 'granted'; }
@@ -51,6 +58,22 @@ function buildState(partial: Omit<LocationPermissionState, 'canUseLocation' | 'c
  *   - notifications denied → FGS runs without persistent notification (silent)
  */
 export async function requestLocationPermissions(): Promise<LocationPermissionState> {
+  if (Platform.OS === 'ios') {
+    // Step 1: Request "When In Use" authorization (required before requesting "Always")
+    const whenInUseRaw = await Geolocation.requestAuthorization('whenInUse');
+    const fineLocation = mapIosResult(whenInUseRaw);
+    if (fineLocation !== 'granted') {
+      return buildState({ fineLocation, backgroundLocation: fineLocation, notifications: 'granted' });
+    }
+    // Step 2: Upgrade to "Always" for background location continuation
+    const alwaysRaw = await Geolocation.requestAuthorization('always');
+    return buildState({
+      fineLocation: 'granted',
+      backgroundLocation: mapIosResult(alwaysRaw),
+      notifications: 'granted',
+    });
+  }
+
   if (Platform.OS !== 'android') {
     return buildState({
       fineLocation: 'granted',
@@ -137,10 +160,14 @@ export function useLocationPermission() {
   }, [isRequesting]);
 
   const promptBackgroundSettings = useCallback(() => {
+    const message = Platform.OS === 'ios'
+      ? '「設定 > プライバシーとセキュリティ > 位置情報サービス > trip meter > 常に許可」を選択してください。\n' +
+        'この設定がないとロック画面・別アプリ使用中の計測が停止します。'
+      : '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
+        'この設定がないとロック画面・別アプリ使用中の計測が停止します。';
     Alert.alert(
       'バックグラウンド位置情報',
-      '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
-        'この設定がないとロック画面・別アプリ使用中の計測が停止します。',
+      message,
       [
         { text: 'キャンセル', style: 'cancel' },
         { text: '設定を開く', onPress: openAppSettings },

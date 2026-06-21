@@ -15,7 +15,7 @@ interface UseOdometerOptions {
   debug?: boolean;                  // true で生ログを蓄積
   config?: Partial<OdometerConfig>; // 閾値の上書き
   deviceId?: string;                // upload sample device identifier
-  onCountedFix?: (sample: LocationSample) => void; // called for every fix that adds distance
+  onCountedFix?: (sample: LocationSample) => Promise<void>; // called for every fix that adds distance
 }
 
 export type ReasonCounts = Partial<Record<AddReason, number>>;

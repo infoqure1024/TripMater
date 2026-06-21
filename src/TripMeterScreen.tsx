@@ -4,8 +4,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  PermissionsAndroid,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -17,6 +15,7 @@ import {
   deactivateKeepAwake,
 } from '@sayem314/react-native-keep-awake';
 import { useOdometer } from './hooks/useTripMeter';
+import { useLocationPermission } from './hooks/useLocationPermission';
 import { useUploader } from './hooks/useUploader';
 import { writeCsvFile } from './storage/logExport';
 import DiagnosticsView from './components/DiagnosticsView';
@@ -46,29 +45,6 @@ function fmtTime(totalSec: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-async function ensurePermission(): Promise<boolean> {
-  if (Platform.OS !== 'android') return true;
-  const locRes = await PermissionsAndroid.request(
-    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    { title: '位置情報の許可', message: '走行距離の計測に使用します。', buttonPositive: 'OK' },
-  );
-  if (locRes !== PermissionsAndroid.RESULTS.GRANTED) return false;
-
-  // Android 10(API 29)以上では活動認識の権限が必要。
-  // 拒否された場合でも速度ゲートで対応するため graceful degradation。
-  if (Platform.Version >= 29) {
-    await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION,
-      {
-        title: '活動認識の許可',
-        message: '停車中の GPS ドリフト除去に使用します（拒否しても計測は動作します）。',
-        buttonPositive: 'OK',
-      },
-    );
-  }
-  return true;
-}
-
 export default function OdometerScreen() {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -82,6 +58,7 @@ export default function OdometerScreen() {
   }, []);
 
   const uploader = useUploader();
+  const { requestPermissions } = useLocationPermission();
 
   const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
     debug: DEBUG,
@@ -126,8 +103,8 @@ export default function OdometerScreen() {
       setActive(false);
       return;
     }
-    const ok = await ensurePermission();
-    if (!ok) {
+    const perm = await requestPermissions();
+    if (!perm.canUseLocation) {
       Alert.alert('位置情報が必要です', '設定アプリから位置情報の許可を有効にしてください。');
       return;
     }
