@@ -81,10 +81,13 @@ describe('end-to-end pipeline', () => {
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
     const { queue, uploader } = makePipeline(storage, fetchMock, { batchSize: 3 });
 
+    // Mirror production path: onEnqueue called after each individual enqueue
     await queue.enqueue(makeSample('fix-1'));
+    await uploader.onEnqueue(); // count=1, no flush
     await queue.enqueue(makeSample('fix-2'));
+    await uploader.onEnqueue(); // count=2, no flush
     await queue.enqueue(makeSample('fix-3'));
-    await uploader.onEnqueue(); // count === batchSize → flush
+    await uploader.onEnqueue(); // count=3 === batchSize → flush
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await queue.count()).toBe(0);
@@ -129,6 +132,11 @@ describe('end-to-end pipeline', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await queue.count()).toBe(0);
+
+    const batch1 = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const batch2 = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(batch1.samples.map((s: LocationSample) => s.id)).toEqual(['a', 'b']);
+    expect(batch2.samples.map((s: LocationSample) => s.id)).toEqual(['c', 'd']);
   });
 });
 
@@ -299,9 +307,9 @@ describe('app-kill survival (queue persistence)', () => {
   test('successfully acked items are not re-sent after kill', async () => {
     const storage = new InMemoryStorage();
 
-    // Enqueue and send 2 items — ack succeeds
-    const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock;
+    // --- Before kill: enqueue and send 2 items, ack succeeds ---
+    const fetchMock1 = jest.fn().mockResolvedValue({ status: 200 });
+    global.fetch = fetchMock1;
     const q1 = new UploadQueue(storage);
     const client1 = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const u1 = new BatchUploader(q1, client1, { batchSize: 10 });
@@ -309,14 +317,18 @@ describe('app-kill survival (queue persistence)', () => {
     await q1.enqueue(makeSample('sent-2'));
     await u1.flushNow();
     expect(await q1.count()).toBe(0);
+    expect(fetchMock1).toHaveBeenCalledTimes(1);
 
-    // After kill — new instance should find empty queue
+    // --- After kill: new pipeline instance with a fresh fetch mock ---
+    const fetchMock2 = jest.fn().mockResolvedValue({ status: 200 });
+    global.fetch = fetchMock2;
     const q2 = new UploadQueue(storage);
-    const u2 = new BatchUploader(q2, client1, { batchSize: 10 });
-    await u2.flushNow();
+    const client2 = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
+    const u2 = new BatchUploader(q2, client2, { batchSize: 10 });
 
-    // fetch called only once (from q1), not again (q2 is empty)
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await q2.count()).toBe(0); // queue is empty after ack
+    await u2.flushNow();
+    expect(fetchMock2).not.toHaveBeenCalled(); // empty queue → no HTTP request
   });
 });
 
@@ -325,21 +337,20 @@ describe('app-kill survival (queue persistence)', () => {
 // ---------------------------------------------------------------------------
 describe('duplicate id / ack failure idempotency', () => {
   test('same ids re-sent when ack fails after successful upload', async () => {
-    let saveCount = 0;
-    const failingStorage: QueueStorage = {
-      async load() { return []; },
+    let failOnNextAck = false;
+    let inMemory: LocationSample[] = [];
+    // Position-independent flag prevents the fragility of a call-count counter.
+    // maxRetries: 0 prevents an implicit 0ms retry timer from racing with the
+    // explicit second flushNow() call below.
+    const storage: QueueStorage = {
+      async load() { return [...inMemory]; },
       async save(items) {
-        saveCount++;
-        if (saveCount === 3) { throw new Error('ack save failed'); }
-        // Delegate to in-memory for non-failing saves
+        if (failOnNextAck) { failOnNextAck = false; throw new Error('ack save failed'); }
         inMemory = [...items];
       },
     };
-    let inMemory: LocationSample[] = [];
-    // Make load() return the current in-memory state
-    (failingStorage as QueueStorage).load = async () => [...inMemory];
 
-    const queue = new UploadQueue(failingStorage);
+    const queue = new UploadQueue(storage);
     await queue.enqueue(makeSample('id-stable-1'));
     await queue.enqueue(makeSample('id-stable-2'));
 
@@ -347,25 +358,26 @@ describe('duplicate id / ack failure idempotency', () => {
     global.fetch = fetchMock;
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10 });
-    const retry = new RetryController(uploader, { baseDelayMs: 0, maxDelayMs: 0, jitterFactor: 0, maxRetries: 1 }, jest.fn());
+    const retry = new RetryController(uploader, { baseDelayMs: 0, maxDelayMs: 0, jitterFactor: 0, maxRetries: 0 }, jest.fn());
     uploader.setListener(event => { retry.handleEvent(event); });
 
-    // First flush: upload succeeds (HTTP 200) but ack (save) fails
+    // First flush: upload succeeds (HTTP 200) but ack save fails
+    failOnNextAck = true;
     await uploader.flushNow();
 
-    // The ack failure means queue still has [id-stable-1, id-stable-2]
+    // Ack rolled back — items remain in queue
     expect(await queue.count()).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // On retry, the same stable ids are sent again
+    // Second flush (manual): same stable ids sent again for server-side idempotency
     await uploader.flushNow();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await queue.count()).toBe(0);
 
-    // Both calls sent the same ids
     const firstBatch = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     const secondBatch = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
-    expect(firstBatch.samples.map((s: LocationSample) => s.id))
-      .toEqual(secondBatch.samples.map((s: LocationSample) => s.id));
     expect(firstBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
+    expect(secondBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
   });
 });
 
