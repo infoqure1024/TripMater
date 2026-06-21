@@ -21,6 +21,7 @@ export type UploadEvent =
 export class BatchUploader {
   private config: UploadConfig;
   private inflight = false;
+  private stopped = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private listener: UploadEventListener | null = null;
 
@@ -36,7 +37,7 @@ export class BatchUploader {
     this.config = { ...this.config, ...config };
   }
 
-  setListener(listener: UploadEventListener): void {
+  setListener(listener: UploadEventListener | null): void {
     this.listener = listener;
   }
 
@@ -52,6 +53,7 @@ export class BatchUploader {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.stopped = true;
   }
 
   /**
@@ -71,7 +73,7 @@ export class BatchUploader {
   }
 
   private async flush(): Promise<void> {
-    if (this.inflight) { return; }
+    if (this.inflight || this.stopped) { return; }
     this.inflight = true;
     try {
       await this.flushLoop();

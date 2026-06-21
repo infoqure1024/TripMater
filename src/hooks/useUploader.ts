@@ -40,6 +40,8 @@ export function useUploader(): UseUploaderReturn {
   const uploaderRef = useRef<BatchUploader | null>(null);
   const retryRef = useRef<RetryController | null>(null);
   const prevOnlineRef = useRef<boolean | null>(null);
+  const uploadEnabledRef = useRef<boolean>(false);
+  uploadEnabledRef.current = uploadEnabled;
 
   // Load persisted config once on mount
   useEffect(() => {
@@ -102,7 +104,7 @@ export function useUploader(): UseUploaderReturn {
       retry.handleEvent(event);
       if (event.type === 'success') {
         setLastSentAt(new Date());
-        setAuthError(null);
+        setAuthError(prev => (prev !== null ? null : prev));
       }
       refreshCount();
     });
@@ -122,15 +124,16 @@ export function useUploader(): UseUploaderReturn {
 
   const enqueue = useCallback(async (sample: LocationSample) => {
     await queueRef.current.enqueue(sample);
-    refreshCount();
+    await refreshCount();
     await uploaderRef.current?.onEnqueue();
   }, [refreshCount]);
 
   const toggleUpload = useCallback(async () => {
-    const next = !uploadEnabled;
+    const next = !uploadEnabledRef.current;
+    uploadEnabledRef.current = next;
     setUploadEnabled(next);
     await saveUploadConfig({ uploadEnabled: next });
-  }, [uploadEnabled]);
+  }, []);
 
   return { uploadEnabled, isOnline, pendingCount, lastSentAt, authError, enqueue, toggleUpload };
 }

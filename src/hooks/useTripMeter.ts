@@ -26,6 +26,8 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const { debug = false, config, deviceId = '', onCountedFix } = options;
   const onCountedFixRef = useRef(onCountedFix);
   useEffect(() => { onCountedFixRef.current = onCountedFix; }, [onCountedFix]);
+  const deviceIdRef = useRef(deviceId);
+  useEffect(() => { deviceIdRef.current = deviceId; }, [deviceId]);
   const odometerRef = useRef(new Odometer(config));
   const activityStill = useActivityRecognition(active);
   const loggerRef = useRef(new FixLogger());
@@ -93,7 +95,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         if (result.reason.startsWith('counted') && onCountedFixRef.current) {
           const sample: LocationSample = {
             id: generateSampleId(),
-            deviceId,
+            deviceId: deviceIdRef.current,
             timestamp: pos.timestamp,
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
@@ -105,7 +107,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
             distanceDeltaM: result.distanceAdded,
             sessionId: sessionIdRef.current,
           };
-          onCountedFixRef.current(sample);
+          onCountedFixRef.current(sample).catch((e) => console.warn('[tripMeter] enqueue error', e));
         }
         setReasonCounts(prev => ({
           ...prev,
