@@ -86,8 +86,7 @@ src/
 │   │                               Android のみ動作、モジュール未対応なら常に false を返す。
 │   ├── useForegroundService.ts … LocationForegroundService を JS 側から制御するフック。
 │   │                             start(title, text) / stop() / updateNotification(title, text)。
-│   ├── useLocationPermission.ts … ACCESS_FINE_LOCATION / ACTIVITY_RECOGNITION の実行時権限リクエスト。
-│   └── useNetworkFlush.ts      … NetInfo イベントを受けて接続復帰時にフラッシュをトリガーするユーティリティ。
+│   └── useLocationPermission.ts … ACCESS_FINE_LOCATION / ACTIVITY_RECOGNITION の実行時権限リクエスト。
 ├── storage/
 │   ├── configStore.ts          … OdometerConfig を JSON で端末に永続化（DocumentDirectoryPath）。
 │   │                             loadConfig / saveConfig / clearConfig。
