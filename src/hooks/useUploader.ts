@@ -64,6 +64,13 @@ export function useUploader(): UseUploaderReturn {
 
   // Single NetInfo subscription: tracks isOnline and triggers flush on reconnect
   useEffect(() => {
+    // Fetch immediately so isOnline reflects reality on first render, not after first event
+    NetInfo.fetch().then((state: NetInfoState) => {
+      const online = state.isConnected === true && state.isInternetReachable !== false;
+      setIsOnline(online);
+      prevOnlineRef.current = online;
+    }).catch(() => { /* keep isOnline=false on error */ });
+
     const unsub = NetInfo.addEventListener((state: NetInfoState) => {
       const online = state.isConnected === true && state.isInternetReachable !== false;
       setIsOnline(online);
