@@ -43,16 +43,16 @@ function makeSample(id: string, overrides: Partial<LocationSample> = {}): Locati
 function makePipeline(
   storage: InMemoryStorage,
   fetchMock: jest.Mock,
-  opts: { batchSize?: number; backoffMs?: number } = {},
+  opts: { batchSize?: number; backoffMs?: number; flushIntervalMs?: number; maxRetries?: number } = {},
 ) {
-  const { batchSize = 10, backoffMs = 100 } = opts;
+  const { batchSize = 10, backoffMs = 100, flushIntervalMs = 60_000, maxRetries = 3 } = opts;
   const queue = new UploadQueue(storage);
   const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
-  const uploader = new BatchUploader(queue, client, { batchSize, flushIntervalMs: 60_000 });
+  const uploader = new BatchUploader(queue, client, { batchSize, flushIntervalMs });
   const onAuthError = jest.fn();
   const retry = new RetryController(
     uploader,
-    { baseDelayMs: backoffMs, maxDelayMs: backoffMs * 8, jitterFactor: 0, maxRetries: 3 },
+    { baseDelayMs: backoffMs, maxDelayMs: backoffMs * 8, jitterFactor: 0, maxRetries },
     onAuthError,
   );
   uploader.setListener(event => {
@@ -378,6 +378,96 @@ describe('duplicate id / ack failure idempotency', () => {
     const secondBatch = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
     expect(firstBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
     expect(secondBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #29: non-retryable 4xx (422) — no retry, periodic timer re-flushes
+// ---------------------------------------------------------------------------
+describe('non-retryable 4xx handling', () => {
+  let testUploader: BatchUploader | undefined;
+  beforeEach(() => { testUploader = undefined; jest.useFakeTimers(); });
+  afterEach(() => { testUploader?.stop(); });
+
+  test('422 triggers no retry; periodic timer re-flushes after flushIntervalMs', async () => {
+    const storage = new InMemoryStorage();
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ status: 422 })
+      .mockResolvedValue({ status: 200 });
+    const { queue, uploader, onAuthError } = makePipeline(storage, fetchMock, {
+      backoffMs: 2000,       // backoff delay intentionally long — confirms no retry fires
+      flushIntervalMs: 1000,
+    });
+    testUploader = uploader;
+
+    await queue.enqueue(makeSample('a'));
+    uploader.start();
+
+    // 422 → resetRetry() → no retry timer scheduled
+    await uploader.flushNow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await queue.count()).toBe(1);
+    expect(onAuthError).not.toHaveBeenCalled(); // 422 must not route to auth-error branch
+
+    // No retry fires within the backoff window (no timer was scheduled)
+    await jest.advanceTimersByTimeAsync(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Periodic timer fires at 1000ms total — item is re-sent and succeeds
+    await jest.advanceTimersByTimeAsync(500);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await queue.count()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #30: maxRetries exhaustion — counter resets, periodic timer re-flushes
+// ---------------------------------------------------------------------------
+describe('maxRetries exhaustion', () => {
+  let testUploader: BatchUploader | undefined;
+  beforeEach(() => { testUploader = undefined; jest.useFakeTimers(); });
+  afterEach(() => { testUploader?.stop(); });
+
+  test('after maxRetries 5xx failures retryCount resets and periodic timer re-flushes', async () => {
+    const storage = new InMemoryStorage();
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ status: 500 }) // initial flush
+      .mockResolvedValueOnce({ status: 500 }) // retry 1
+      .mockResolvedValueOnce({ status: 500 }) // retry 2 = maxRetries → exhausted
+      .mockResolvedValue({ status: 200 });    // periodic timer flush
+    const { queue, uploader, retry } = makePipeline(storage, fetchMock, {
+      maxRetries: 2,
+      backoffMs: 100,        // retry 1 at +100ms, retry 2 at +200ms (exponential)
+      flushIntervalMs: 1000,
+    });
+    testUploader = uploader;
+
+    await queue.enqueue(makeSample('a'));
+    uploader.start();
+
+    // Initial flush: 500 → schedules retry #1 at 100ms
+    await uploader.flushNow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await queue.count()).toBe(1);
+
+    // Retry #1 fires at 100ms: 500 → schedules retry #2 at 200ms later
+    await jest.advanceTimersByTimeAsync(100);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Retry #2 fires at 300ms total: retryCount(2) >= maxRetries(2) → reset, no more retries
+    await jest.advanceTimersByTimeAsync(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(await queue.count()).toBe(1); // items not consumed
+    expect(retry.pendingRetryCount).toBe(0); // counter was reset
+
+    // No retry timer — advancing well past any backoff delay has no effect
+    await jest.advanceTimersByTimeAsync(300); // 600ms total
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // Periodic timer fires at 1000ms: items re-sent and succeed
+    await jest.advanceTimersByTimeAsync(400); // 1000ms total
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(await queue.count()).toBe(0);
   });
 });
 
