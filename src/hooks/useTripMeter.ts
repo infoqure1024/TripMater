@@ -24,7 +24,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const [speedKmh, setSpeedKmh] = useState(0);
   const [logCount, setLogCount] = useState(0);
   const [reasonCounts, setReasonCounts] = useState<ReasonCounts>(EMPTY_COUNTS);
-  const fgs = useForegroundService();
+  const { start: fgsStart, stop: fgsStop, updateNotification: fgsUpdateNotification } = useForegroundService();
 
   const reset = useCallback(() => {
     odometerRef.current.reset();
@@ -52,11 +52,11 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   // FGS ライフサイクル: 計測開始でサービス起動 → 停止でサービス終了
   useEffect(() => {
     if (active) {
-      fgs.start('走行計測中', '計測を継続しています');
+      fgsStart('走行計測中', '計測を継続しています');
     } else {
-      fgs.stop();
+      fgsStop();
     }
-  }, [active, fgs]);
+  }, [active, fgsStart, fgsStop]);
 
   useEffect(() => {
     if (!active) return;
@@ -75,7 +75,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         setSpeedKmh(result.filteredSpeedMps != null ? result.filteredSpeedMps * 3.6 : 0);
         // 通知に走行距離をリアルタイム反映
         const km = (result.total / 1000).toFixed(2);
-        fgs.updateNotification('走行計測中', `走行距離: ${km} km`);
+        fgsUpdateNotification('走行計測中', `走行距離: ${km} km`);
         setReasonCounts(prev => ({
           ...prev,
           [result.reason]: (prev[result.reason] ?? 0) + 1,
@@ -99,7 +99,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
       Geolocation.clearWatch(watchId);
       setSpeedKmh(0);
     };
-  }, [active, debug, fgs]);
+  }, [active, debug, fgsUpdateNotification]);
 
   return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries, reasonCounts };
 }

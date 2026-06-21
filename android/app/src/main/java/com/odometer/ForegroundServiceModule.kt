@@ -22,7 +22,7 @@ class ForegroundServiceModule(private val reactContext: ReactApplicationContext)
             val intent = serviceIntent(LocationForegroundService.ACTION_START)
                 .putExtra(LocationForegroundService.EXTRA_TITLE, title)
                 .putExtra(LocationForegroundService.EXTRA_TEXT, text)
-            startService(intent)
+            startFgsService(intent)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("FGS_START_FAILED", e.message, e)
@@ -32,7 +32,7 @@ class ForegroundServiceModule(private val reactContext: ReactApplicationContext)
     @ReactMethod
     fun stop(promise: Promise) {
         try {
-            startService(serviceIntent(LocationForegroundService.ACTION_STOP))
+            startFgsService(serviceIntent(LocationForegroundService.ACTION_STOP))
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("FGS_STOP_FAILED", e.message, e)
@@ -45,7 +45,10 @@ class ForegroundServiceModule(private val reactContext: ReactApplicationContext)
             val intent = serviceIntent(LocationForegroundService.ACTION_UPDATE)
                 .putExtra(LocationForegroundService.EXTRA_TITLE, title)
                 .putExtra(LocationForegroundService.EXTRA_TEXT, text)
-            startService(intent)
+            // Use startService (not startForegroundService) — the service is already
+            // running; using startForegroundService here would create an FGS obligation
+            // if the service happened to be stopped, causing a 5-second timeout crash.
+            reactContext.startService(intent)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("FGS_UPDATE_FAILED", e.message, e)
@@ -57,7 +60,7 @@ class ForegroundServiceModule(private val reactContext: ReactApplicationContext)
             this.action = action
         }
 
-    private fun startService(intent: Intent) {
+    private fun startFgsService(intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             reactContext.startForegroundService(intent)
         } else {
