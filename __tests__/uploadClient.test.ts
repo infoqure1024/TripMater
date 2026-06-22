@@ -1,5 +1,9 @@
+import axios from 'axios';
 import { HttpUploadClient } from '../src/core/uploadClient';
-import { LocationSample, UploadClientConfig } from '../src/core/uploadTypes';
+import { LocationSample, UploadClientConfig, UploadEnvelope } from '../src/core/uploadTypes';
+
+jest.mock('axios');
+const mockedPost = axios.post as jest.Mock;
 
 function makeConfig(overrides: Partial<UploadClientConfig> = {}): UploadClientConfig {
   return {
@@ -23,66 +27,77 @@ function makeSample(overrides: Partial<LocationSample> = {}): LocationSample {
   };
 }
 
-function mockFetchResponse(status: number) {
-  return jest.fn().mockResolvedValue({ status });
+/** axios.post が指定ステータスで resolve するようにモックする。 */
+function mockPostStatus(status: number) {
+  mockedPost.mockResolvedValue({ status });
 }
 
-let savedFetch: typeof global.fetch;
-beforeEach(() => { savedFetch = global.fetch; });
-afterEach(() => { global.fetch = savedFetch; jest.useRealTimers(); });
+/** axios.post の [url, data, config] 呼び出し引数を取り出す。 */
+function postCall() {
+  return mockedPost.mock.calls[0] as [
+    string,
+    UploadEnvelope,
+    { headers: Record<string, string>; timeout: number },
+  ];
+}
+
+afterEach(() => {
+  mockedPost.mockReset();
+  jest.useRealTimers();
+});
 
 describe('HttpUploadClient.upload — response classification', () => {
   test('2xx → ok=true, retryable=false', async () => {
-    global.fetch = mockFetchResponse(200);
+    mockPostStatus(200);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: true, status: 200, retryable: false });
   });
 
   test('201 → ok=true, retryable=false', async () => {
-    global.fetch = mockFetchResponse(201);
+    mockPostStatus(201);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: true, status: 201, retryable: false });
   });
 
   test('400 → ok=false, retryable=false', async () => {
-    global.fetch = mockFetchResponse(400);
+    mockPostStatus(400);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 400, retryable: false });
   });
 
   test('401 → ok=false, retryable=false', async () => {
-    global.fetch = mockFetchResponse(401);
+    mockPostStatus(401);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 401, retryable: false });
   });
 
   test('403 → ok=false, retryable=false', async () => {
-    global.fetch = mockFetchResponse(403);
+    mockPostStatus(403);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 403, retryable: false });
   });
 
   test('500 → ok=false, retryable=true', async () => {
-    global.fetch = mockFetchResponse(500);
+    mockPostStatus(500);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 500, retryable: true });
   });
 
   test('503 → ok=false, retryable=true', async () => {
-    global.fetch = mockFetchResponse(503);
+    mockPostStatus(503);
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 503, retryable: true });
   });
 
   test('network error → ok=false, status=0, retryable=true', async () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('Network request failed'));
+    mockedPost.mockRejectedValue(new Error('Network Error'));
     const result = await new HttpUploadClient(makeConfig()).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 0, retryable: true });
   });
 
-  test('AbortError (timeout) → ok=false, status=0, retryable=true', async () => {
-    const err = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
-    global.fetch = jest.fn().mockRejectedValue(err);
+  test('timeout (ECONNABORTED) → ok=false, status=0, retryable=true', async () => {
+    const err = Object.assign(new Error('timeout of 10ms exceeded'), { code: 'ECONNABORTED' });
+    mockedPost.mockRejectedValue(err);
     const result = await new HttpUploadClient(makeConfig({ timeoutMs: 10 })).upload([makeSample()]);
     expect(result).toEqual({ ok: false, status: 0, retryable: true });
   });
@@ -90,77 +105,74 @@ describe('HttpUploadClient.upload — response classification', () => {
 
 describe('HttpUploadClient.upload — request shape', () => {
   test('sends Authorization Bearer header with the configured token', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(makeConfig({ token: 'my-secret' })).upload([makeSample()]);
-    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer my-secret');
+    const [, , config] = postCall();
+    expect(config.headers.Authorization).toBe('Bearer my-secret');
   });
 
   test('sends Content-Type: application/json', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(makeConfig()).upload([makeSample()]);
-    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((opts.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    const [, , config] = postCall();
+    expect(config.headers['Content-Type']).toBe('application/json');
+  });
+
+  test('passes the configured timeout to axios', async () => {
+    mockPostStatus(200);
+    await new HttpUploadClient(makeConfig({ timeoutMs: 12_345 })).upload([makeSample()]);
+    const [, , config] = postCall();
+    expect(config.timeout).toBe(12_345);
   });
 
   test('sends POST to baseUrl + path', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(
       makeConfig({ baseUrl: 'https://api.example.com', path: '/v2/gps' }),
     ).upload([makeSample()]);
-    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = postCall();
     expect(url).toBe('https://api.example.com/v2/gps');
-    expect(opts.method).toBe('POST');
   });
 
   test('strips single trailing slash from baseUrl to avoid double slash', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(
       makeConfig({ baseUrl: 'https://api.example.com/', path: '/v2/gps' }),
     ).upload([makeSample()]);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = postCall();
     expect(url).toBe('https://api.example.com/v2/gps');
   });
 
   test('strips multiple trailing slashes from baseUrl', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(
       makeConfig({ baseUrl: 'https://api.example.com//', path: '/v2/gps' }),
     ).upload([makeSample()]);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = postCall();
     expect(url).toBe('https://api.example.com/v2/gps');
   });
 
   test('adds leading slash to path when missing', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     await new HttpUploadClient(
       makeConfig({ baseUrl: 'https://api.example.com', path: 'v2/gps' }),
     ).upload([makeSample()]);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = postCall();
     expect(url).toBe('https://api.example.com/v2/gps');
   });
 
   test('body contains schemaVersion=1 and the submitted samples', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     const sample = makeSample({ id: 'abc-123', lat: 1.23, lng: 4.56 });
     await new HttpUploadClient(makeConfig()).upload([sample]);
-    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(opts.body as string);
+    const [, body] = postCall();
     expect(body.schemaVersion).toBe(1);
     expect(body.samples).toHaveLength(1);
     expect(body.samples[0]).toMatchObject({ id: 'abc-123', lat: 1.23, lng: 4.56 });
   });
 
-  test('optional sample fields are included in the serialized body', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+  test('optional sample fields are included in the request body', async () => {
+    mockPostStatus(200);
     const sample = makeSample({
       rawSpeedMps: 6.1,
       headingDeg: 90,
@@ -169,8 +181,7 @@ describe('HttpUploadClient.upload — request shape', () => {
       distanceDeltaM: 5.5,
     });
     await new HttpUploadClient(makeConfig()).upload([sample]);
-    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(opts.body as string);
+    const [, body] = postCall();
     expect(body.samples[0]).toMatchObject({
       rawSpeedMps: 6.1,
       headingDeg: 90,
@@ -181,12 +192,10 @@ describe('HttpUploadClient.upload — request shape', () => {
   });
 
   test('sends multiple samples in a single request', async () => {
-    const fetchMock = mockFetchResponse(200);
-    global.fetch = fetchMock;
+    mockPostStatus(200);
     const samples = [makeSample({ id: 'a' }), makeSample({ id: 'b' }), makeSample({ id: 'c' })];
     await new HttpUploadClient(makeConfig()).upload(samples);
-    const [, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(opts.body as string);
+    const [, body] = postCall();
     expect(body.samples).toHaveLength(3);
     expect(body.samples.map((s: LocationSample) => s.id)).toEqual(['a', 'b', 'c']);
   });
