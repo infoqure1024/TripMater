@@ -12,16 +12,24 @@ Android 中心、iOS でも動作する想定。
 
 ## 使用前提・設計判断
 
-- **動作モード**: バックグラウンド継続（FGS あり）。Foreground Service (type=location) を起動した
-  まま計測を継続するため、ロック画面・別アプリ起動中でも位置取得と送信が継続する。
-  計測画面を開いている間は `keepScreenOn` により常時点灯する。
+- **動作モード**: バックグラウンド継続（FGS あり）。`react-native-background-actions` の
+  バックグラウンドタスクを起動したまま計測を継続するため、ロック画面・別アプリ起動中でも
+  位置取得と送信が継続する。Android ではこのタスクが Foreground Service (type=location) として
+  動作する。計測画面を開いている間は `keepScreenOn` により常時点灯する。
 - **位置情報**: `react-native-geolocation-service`（内部は FusedLocationProvider）。
   `watchPosition` を `enableHighAccuracy: true` + `distanceFilter: 0` + `interval: 1000`
   + `fastestInterval: 500` + `forceRequestLocation: true` で使用。間引きは OS でなく
   自前ロジックで行う。
-- **FGS**: `LocationForegroundService`（Android Kotlin）+ `ForegroundServiceModule`（Native Module）。
-  `useForegroundService` フックが JS 側から起動・停止・通知テキスト更新を行う。
-  計測開始時にサービスを起動し、停止時に終了する。
+- **バックグラウンド実行（FGS）**: `react-native-background-actions` を採用（Issue #42）。
+  `useForegroundService` フックが JS 側から `start` / `stop` / `updateNotification` を呼ぶ。
+  計測開始時にバックグラウンドタスクを起動し、停止時に終了する。タスク本体は何もせず、プロセスを
+  生かし続けるだけで、実際の GPS 取得は `useTripMeter` の `watchPosition` が担う。
+  Android では Foreground Service (type=location) として常駐通知を表示（`start` 時に
+  `foregroundServiceType: ['location']` を指定）。iOS ではバックグラウンドタスクとして動作するが、
+  連続的な位置取得は `UIBackgroundModes: [location]`（Info.plist）に依存する。
+  以前の自前 Kotlin FGS（`LocationForegroundService` / `ForegroundServiceModule` /
+  `ForegroundServicePackage`）は撤去した。ロジックは `ForegroundServiceController`
+  （RN 非依存）に切り出しユニットテスト可能。
 - **距離計測アルゴリズム**（`src/core/tripMeter.ts`）: 1 fix ごとに加算可否を判定する。
   - 精度ゲート: `accuracy > maxAccuracyM(30m)` は破棄 → `accuracy_gate`。
   - 連続性: `dt <= 0` → `non_monotonic`。`dt > maxDtS(5s)` → `gap`（フィルタもリセット）。
@@ -84,8 +92,10 @@ src/
 │   │                             + 接続復帰時フラッシュ。toggleUpload で送信 ON/OFF を永続化。
 │   ├── useActivityRecognition.ts … Activity Recognition の Native Module をラップ。active フラグで起動/停止。
 │   │                               Android のみ動作、モジュール未対応なら常に false を返す。
-│   ├── useForegroundService.ts … LocationForegroundService を JS 側から制御するフック。
+│   ├── useForegroundService.ts … react-native-background-actions を JS 側から制御するフック。
 │   │                             start(title, text) / stop() / updateNotification(title, text)。
+│   │                             ロジックは ForegroundServiceController（RN 非依存）に分離。
+│   │                             Android FGS (type=location) + iOS バックグラウンドタスクで動作。
 │   └── useLocationPermission.ts … ACCESS_FINE_LOCATION / ACTIVITY_RECOGNITION の実行時権限リクエスト。
 ├── storage/
 │   ├── configStore.ts          … OdometerConfig を JSON で端末に永続化（DocumentDirectoryPath）。
@@ -105,10 +115,14 @@ src/
 
 android/
 └── app/src/main/java/com/odometer/
-    ├── ForegroundServiceModule.kt  … JS → Kotlin ブリッジ。start/stop/updateNotification を Native Module として公開。
-    ├── ForegroundServicePackage.kt … Native Package 登録。
-    └── LocationForegroundService.kt … ForegroundService 本体。type=location の通知を常時表示。
+    ├── ActivityRecognitionModule.kt … Activity Recognition の Native Module。
+    ├── ActivityRecognitionPackage.kt … Native Package 登録。
+    └── （FGS は react-native-background-actions に移行したため Kotlin FGS は撤去。Issue #42）
 ```
+
+> バックグラウンド実行は `react-native-background-actions`（autolink）が担う。Android では
+> 同ライブラリの Foreground Service を利用し、AndroidManifest で `RNBackgroundActionsTask` の
+> `foregroundServiceType` を `location` に上書きしている（下記）。
 
 ## Android 設定（AndroidManifest.xml）
 
@@ -129,11 +143,13 @@ android/
 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
-<!-- FGS 宣言 -->
+<!-- FGS 宣言（react-native-background-actions のサービスを location タイプに上書き） -->
+<!-- manifest ルートに xmlns:tools="http://schemas.android.com/tools" が必要 -->
 <service
-  android:name=".LocationForegroundService"
+  android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask"
   android:foregroundServiceType="location"
-  android:exported="false" />
+  android:exported="false"
+  tools:replace="android:foregroundServiceType" />
 <!-- activity に android:keepScreenOn="true" -->
 ```
 
@@ -219,6 +235,7 @@ android/
 ## 依存ライブラリ
 
 - `react-native-geolocation-service` ^5.3.1
+- `react-native-background-actions` ^4.1.0（クロスプラットフォームのバックグラウンドタスク／FGS）
 - `@sayem314/react-native-keep-awake` ^1.4.0（画面常時点灯）
 - `react-native-fs` ^2.20.0（CSV 書き出し・config 永続化・upload キュー）
 - `react-native-keychain` ^9.2.2（API トークンの安全な保存）
