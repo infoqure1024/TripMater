@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -24,10 +25,15 @@
         android:name=".ActivityTransitionReceiver"
         android:exported="false" />
 
+      <!-- react-native-background-actions runs the background task as a
+           Foreground Service. Override its merged service entry so the FGS type
+           is `location` (required on Android 14+ to match the runtime type and
+           to keep the Play Console FGS(location) declaration valid). -->
       <service
-        android:name=".LocationForegroundService"
+        android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask"
         android:foregroundServiceType="location"
-        android:exported="false" />
+        android:exported="false"
+        tools:replace="android:foregroundServiceType" />
 
       <activity
         android:name=".MainActivity"

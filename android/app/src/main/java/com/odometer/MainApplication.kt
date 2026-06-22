@@ -17,7 +17,9 @@ class MainApplication : Application(), ReactApplication {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
               add(ActivityRecognitionPackage())
-              add(ForegroundServicePackage())
+              // Background execution is now handled by react-native-background-actions
+              // (autolinked). The previous custom LocationForegroundService /
+              // ForegroundServicePackage have been removed — see Issue #42.
             }
 
         override fun getJSMainModuleName(): String = "index"
