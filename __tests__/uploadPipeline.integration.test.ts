@@ -1,7 +1,7 @@
 /**
  * Integration tests for the upload pipeline.
  * Tests cross-module scenarios: UploadQueue + BatchUploader + RetryController + HttpUploadClient.
- * All HTTP is mocked via global.fetch; all FS is mocked via InMemoryStorage.
+ * All HTTP is mocked via axios (axios.post); all FS is mocked via InMemoryStorage.
  */
 
 jest.mock('react-native-fs', () => ({
@@ -10,16 +10,36 @@ jest.mock('react-native-fs', () => ({
   readFile: jest.fn(),
   writeFile: jest.fn(),
 }));
+jest.mock('axios');
 
+import axios from 'axios';
 import { QueueStorage, UploadQueue } from '../src/storage/uploadQueue';
 import { BatchUploader } from '../src/core/batchUploader';
 import { HttpUploadClient } from '../src/core/uploadClient';
 import { RetryController } from '../src/core/retryController';
-import { LocationSample } from '../src/core/uploadTypes';
+import { LocationSample, UploadEnvelope } from '../src/core/uploadTypes';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+const mockedAxiosPost = axios.post as jest.Mock;
+
+/**
+ * Route the auto-mocked axios.post through the given jest.fn so existing
+ * per-test response sequences (mockResolvedValueOnce, etc.) and call-argument
+ * assertions keep working as before. The mock is called as
+ * axios.post(url, data, config), so `mock.calls[i][1]` is the request body.
+ */
+function installHttpMock(mock: jest.Mock) {
+  mockedAxiosPost.mockReset();
+  mockedAxiosPost.mockImplementation((...args: unknown[]) => mock(...args));
+}
+
+/** Extract the request envelope (axios.post data argument) from call i. */
+function sentEnvelope(mock: jest.Mock, i: number): UploadEnvelope {
+  return mock.mock.calls[i][1] as UploadEnvelope;
+}
 
 class InMemoryStorage implements QueueStorage {
   private data: LocationSample[] = [];
@@ -58,17 +78,15 @@ function makePipeline(
   uploader.setListener(event => {
     retry.handleEvent(event);
   });
-  global.fetch = fetchMock;
+  installHttpMock(fetchMock);
   return { queue, client, uploader, retry, onAuthError };
 }
 
 /** Drain all pending microtasks so fire-and-forget async ops complete. */
 const drain = () => new Promise<void>(r => setImmediate(r));
 
-let savedFetch: typeof global.fetch;
-beforeEach(() => { savedFetch = global.fetch; });
 afterEach(() => {
-  global.fetch = savedFetch;
+  mockedAxiosPost.mockReset();
   jest.useRealTimers();
 });
 
@@ -92,7 +110,7 @@ describe('end-to-end pipeline', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await queue.count()).toBe(0);
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = sentEnvelope(fetchMock, 0);
     expect(body.samples.map((s: LocationSample) => s.id)).toEqual(['fix-1', 'fix-2', 'fix-3']);
   });
 
@@ -133,8 +151,8 @@ describe('end-to-end pipeline', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await queue.count()).toBe(0);
 
-    const batch1 = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    const batch2 = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    const batch1 = sentEnvelope(fetchMock, 0);
+    const batch2 = sentEnvelope(fetchMock, 1);
     expect(batch1.samples.map((s: LocationSample) => s.id)).toEqual(['a', 'b']);
     expect(batch2.samples.map((s: LocationSample) => s.id)).toEqual(['c', 'd']);
   });
@@ -209,10 +227,10 @@ describe('failure and retry', () => {
     expect(await queue.count()).toBe(0);
   });
 
-  test('network error (fetch throws) triggers backoff retry', async () => {
+  test('network error (axios rejects) triggers backoff retry', async () => {
     const storage = new InMemoryStorage();
     const fetchMock = jest.fn()
-      .mockRejectedValueOnce(new Error('Network request failed'))
+      .mockRejectedValueOnce(new Error('Network Error'))
       .mockResolvedValue({ status: 200 });
     const { queue, uploader } = makePipeline(storage, fetchMock, { batchSize: 10, backoffMs: 500 });
 
@@ -290,7 +308,7 @@ describe('app-kill survival (queue persistence)', () => {
 
     // --- After kill: new instances share the same backing storage ---
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const q2 = new UploadQueue(storage);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader2 = new BatchUploader(q2, client, { batchSize: 10 });
@@ -300,7 +318,7 @@ describe('app-kill survival (queue persistence)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await q2.count()).toBe(0);
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = sentEnvelope(fetchMock, 0);
     expect(body.samples.map((s: LocationSample) => s.id)).toEqual(['pre-kill-1', 'pre-kill-2']);
   });
 
@@ -309,7 +327,7 @@ describe('app-kill survival (queue persistence)', () => {
 
     // --- Before kill: enqueue and send 2 items, ack succeeds ---
     const fetchMock1 = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock1;
+    installHttpMock(fetchMock1);
     const q1 = new UploadQueue(storage);
     const client1 = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const u1 = new BatchUploader(q1, client1, { batchSize: 10 });
@@ -319,9 +337,9 @@ describe('app-kill survival (queue persistence)', () => {
     expect(await q1.count()).toBe(0);
     expect(fetchMock1).toHaveBeenCalledTimes(1);
 
-    // --- After kill: new pipeline instance with a fresh fetch mock ---
+    // --- After kill: new pipeline instance with a fresh axios mock ---
     const fetchMock2 = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock2;
+    installHttpMock(fetchMock2);
     const q2 = new UploadQueue(storage);
     const client2 = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const u2 = new BatchUploader(q2, client2, { batchSize: 10 });
@@ -355,7 +373,7 @@ describe('duplicate id / ack failure idempotency', () => {
     await queue.enqueue(makeSample('id-stable-2'));
 
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10 });
     const retry = new RetryController(uploader, { baseDelayMs: 0, maxDelayMs: 0, jitterFactor: 0, maxRetries: 0 }, jest.fn());
@@ -374,8 +392,8 @@ describe('duplicate id / ack failure idempotency', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await queue.count()).toBe(0);
 
-    const firstBatch = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    const secondBatch = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    const firstBatch = sentEnvelope(fetchMock, 0);
+    const secondBatch = sentEnvelope(fetchMock, 1);
     expect(firstBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
     expect(secondBatch.samples.map((s: LocationSample) => s.id)).toEqual(['id-stable-1', 'id-stable-2']);
   });
@@ -489,13 +507,13 @@ describe('maxSize and prune', () => {
     expect(await queue.count()).toBe(3);
 
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10 });
 
     await uploader.flushNow();
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = sentEnvelope(fetchMock, 0);
     expect(body.samples.map((s: LocationSample) => s.id)).toEqual(['new-1', 'new-2', 'new-3']);
     expect(await queue.count()).toBe(0);
   });
@@ -509,7 +527,7 @@ describe('maxSize and prune', () => {
     await queue.prune(0);
 
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10 });
 
@@ -528,7 +546,7 @@ describe('pipeline teardown safety', () => {
     const storage = new InMemoryStorage();
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
     const queue = new UploadQueue(storage);
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10, flushIntervalMs: 1000 });
 
@@ -544,7 +562,7 @@ describe('pipeline teardown safety', () => {
     const storage = new InMemoryStorage();
     const fetchMock = jest.fn().mockResolvedValue({ status: 200 });
     const queue = new UploadQueue(storage);
-    global.fetch = fetchMock;
+    installHttpMock(fetchMock);
     const client = new HttpUploadClient({ baseUrl: 'https://api.test', path: '/locs', token: 'tok' });
     const uploader = new BatchUploader(queue, client, { batchSize: 10 });
 
