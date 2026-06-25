@@ -484,6 +484,70 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 
 ---
 
+## 11. CI/CD（継続的インテグレーション / デリバリー）
+
+受信サーバー（§9 の技術スタック）の品質ゲートと配布を GitHub Actions で自動化する。
+ワークフロー定義は `.github/workflows/`、サーバーコードは §0 の決定に従い `server/` 配下を想定。
+本章は仕様で、実装は Issue（§11.5）で追跡する。デプロイ構成そのものは #58、統合テスト本体は #59 と重複するため、
+本章は**それらを「いつ・どの順で・何をゲートに」自動実行するか**に責務を絞る。
+
+### 11.1 方針
+
+- **API 契約（`openapi.yaml`）と DB スキーマ（§6）を壊さないこと**を最優先のゲートにする。
+- **冪等性・不変条件（§3.2 `received = inserted + duplicates + dropped`）を CI で機械検証**する（#59）。
+- **秘密情報（`DATABASE_URL` / `ADMIN_API_KEY` / レジストリ資格情報）はコードに置かず** GitHub Secrets / 環境変数で注入（§5.4・§7）。
+- **再現性**: Node はサーバー側 `package.json` の `engines` に従い `npm ci`。DB は CI 内で**使い捨ての PostgreSQL**を立てる。
+
+### 11.2 CI（quality gate / 全 PR・プッシュ）
+
+| ジョブ | 内容 |
+|---|---|
+| `lint` | ESLint / Prettier（§9 スタック準拠） |
+| `typecheck` | `tsc --noEmit` |
+| `migrate` | 使い捨て Postgres に対し**マイグレーション up → down → up** を流して可逆性を検証（#51） |
+| `test` | ユニット + **統合テスト**（#59）。`services:` の `postgres`（PostGIS 任意）に対して実行 |
+| `contract` | レスポンスが `openapi.yaml` に整合するか**契約テスト**（§4・§3.2 のスキーマ）。任意だが推奨 |
+| `docker-build` | `Dockerfile`（Fastify 採用時）のビルドが通るか検証（#58）。`lint`/`typecheck`/`test` 通過後 |
+
+- **CI 用 DB**: GitHub Actions の `services:` で `postgres:16`（必要なら `postgis/postgis`）を起動し、
+  `DATABASE_URL` を `postgres://...@localhost:5432/...` で渡す。マイグレーション適用後にテスト実行。
+- **統合テストで必ず検証する不変条件**（#59 と同一・CI のゲート）:
+  - 冪等性: 同一バッチ再送で二重保存されない（`duplicates` に計上、§8）。
+  - 不変条件: `received = inserted + duplicates + dropped`（accept-and-drop 含む、§3.2）。
+  - 認証(R1): 失効/期限切れ→401、デバイス無効→403（§5.2）。
+  - device_id 導出(R2): `sample.deviceId` 偽装でも保存先は token 由来、`deviceMismatch` 計上（§3.1）。
+  - IDOR(S4): 他デバイスのセッションが 404（§4）。
+  - バックプレッシャー: 503 + `Retry-After`（§1.3・§7）。
+- **ログ衛生のテスト**（§7）: テスト出力に `Authorization` / 生トークン / 生 `lat`/`lng` が漏れないことを
+  スナップショット等で確認（PII マスキングの回帰防止）。
+
+### 11.3 CD（配布 / `main` マージ・タグ起動）
+
+- **トリガ**: `main` へのマージ（ステージング）/ `v*` タグ（本番）。環境ごとに GitHub Environments で分離。
+- **手順**:
+  1. イメージビルド（`docker-build`）→ コンテナレジストリへ push（Vercel 採用時は Vercel デプロイに置換、§9）。
+  2. **デプロイ前にマイグレーションを適用**（リリースと同一コミットの up を実行）。後方互換を保ち、
+     ロールバック可能な順序（expand → migrate → contract）を守る。
+  3. デプロイ先（Cloud Run / Fly.io / Render 等、#58）へロールアウト。
+  4. **ヘルスチェックゲート**: `GET /healthz` が 200 を返すまで待ち、失敗ならロールバック（§9・#50）。
+- **シークレット**: `DATABASE_URL`・`ADMIN_API_KEY` 等は各 Environment の Secrets から注入。コード・ログに残さない（§5.4・§7）。
+- **本番デプロイは手動承認**（environment protection rule）を挟むことを推奨。
+- **TLS / 接続プール**: 本番は HTTPS 必須、DB は PgBouncer 等のプール経由（#58・§7）。
+
+### 11.4 監視との接続（§7）
+
+- CD 後にメトリクスエンドポイント（`received/inserted/duplicates/dropped/deviceMismatch`・rejected-envelope）が
+  出ていることをスモークテストで確認。`dropped > 0` / `deviceMismatch > 0` のアラート設定はデプロイ成果物に含める（#57）。
+
+### 11.5 関連 Issue
+
+- #58 [server][infra] デプロイ構成（Dockerfile / デプロイ先 / 接続プール / TLS）— CD の実行基盤。
+- #59 [server][testing] 統合テスト — CI の `test` ジョブが実行する本体。
+- #57 [server][observability] メトリクス / ログ衛生 — CD 後スモークと CI のログ衛生テスト。
+- 本章を起点に **[server][ci] CI/CD パイプライン**の専用 Issue を新設し、エピック #60 の子として追跡する。
+
+---
+
 ## 付録: OpenAPI
 
 機械可読な API 契約は同ディレクトリの [`openapi.yaml`](./openapi.yaml) を参照。
