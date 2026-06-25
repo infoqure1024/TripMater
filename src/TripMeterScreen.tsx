@@ -35,10 +35,9 @@ const COLORS = {
   border: '#222B35',
 };
 
-// 以前は __DEV__（デバッグビルドのみ）だったが、理由別フィルター結果・TUNING・
-// CSV エクスポート・log 点数表示をリリースビルドでも表示するため常時有効にする（Issue #45）。
-// この値は診断パネルの表示制御と、useOdometer の debug（生ログ蓄積）の両方を兼ねる。
-// 診断パネル表示 + 生ログ蓄積（リリース含む / Issue #45）
+// 診断パネル（理由別フィルター結果・TUNING・CSV・log 点数）の表示制御と、
+// useOdometer の debug（生ログ蓄積）を兼ねるフラグ。以前は __DEV__ でデバッグ
+// ビルドのみだったが、リリースビルドでも表示するため常時有効にする（Issue #45）。
 const SHOW_DIAGNOSTICS = true;
 
 function fmtTime(totalSec: number): string {
