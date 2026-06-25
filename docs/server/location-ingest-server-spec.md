@@ -188,9 +188,18 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 > `duplicates > 0` でも `200` を返す（再送の正常動作）。ボディはクライアントが見ない（ステータス
 > コードのみ参照）ため運用・観測用だが、**捨てたデータの追跡に不可欠**。
 
-### 3.3 保存処理（原子性・冪等性）
+### 3.3 保存処理（判定順序・原子性・冪等性）
 
-1 リクエスト = 1 トランザクションで全 sample を `INSERT ... ON CONFLICT (id) DO NOTHING`。
+各 sample は**次の固定順で判定し、最初に該当したバケットへ排他的に分類**する（§3.2 の不変条件
+`received = inserted + duplicates + dropped + scrubbed` を**決定的**にするため。順序が曖昧だと
+二重計上で不変条件が壊れる）:
+
+1. **scrubbed**: `deviceId` がトークンのデバイスと不一致 → 除外（§3.1）。
+2. **dropped**: 必須フィールド欠落・解釈不能で**クランプでも救えない** → 破棄（§2.3-1）。
+3. **duplicates**: INSERT 時 `ON CONFLICT (id)` で既存 → スキップ。
+4. **inserted**: 上記以外 → 保存（任意フィールドの逸脱はクランプ/NULL 化済み）。
+
+1 リクエスト = 1 トランザクションで、上記を通過した sample を `INSERT ... ON CONFLICT (id) DO NOTHING`。
 
 ```sql
 INSERT INTO location_samples
@@ -231,8 +240,13 @@ ON CONFLICT (id) DO NOTHING;
 
 ## 4. 閲覧 / 集計エンドポイント（拡張・任意）
 
-ingest を中心にしつつ、検証や将来の可視化のため最小限を定義する。すべて読み取り専用、
-認証は管理者トークン（§5.4）またはデバイストークン（自デバイス分のみ）。
+ingest を中心にしつつ、検証や将来の可視化のため最小限を定義する。すべて読み取り専用。
+認証は**管理者トークン**（§5.4、任意のデバイスを読める）または**デバイストークン**（自デバイス分のみ）。
+
+> ⚠️ **所有権チェック必須（IDOR 対策）**: `/sessions/{sessionId}/...` はパスに `deviceId` を含まない。
+> デバイストークンでの呼び出しでは、**対象 session の `device_id` がトークンのデバイスと一致するか
+> を必ず検証**し、不一致・不存在はいずれも **`404`**（存在を漏らさない）。`/devices/{deviceId}/sessions`
+> は `path.deviceId == token.device` を要求する（管理者トークンはこの制約を免除）。
 
 | メソッド | パス | 用途 |
 |---|---|---|
@@ -240,7 +254,8 @@ ingest を中心にしつつ、検証や将来の可視化のため最小限を�
 | `GET` | `/api/v1/sessions/{sessionId}/summary` | セッションの合計走行距離・件数・期間 |
 | `GET` | `/api/v1/sessions/{sessionId}/samples` | セッションの生サンプル（ページング） |
 
-セッションサマリは `location_samples` から集計（オンデマンド or マテビュー）：
+セッションサマリは `location_samples` から集計（オンデマンド or マテビュー）。
+**デバイストークン経由では所有権を絞る `device_id` 述語を必ず付与**する（管理者は省略可）：
 
 ```sql
 SELECT
@@ -252,7 +267,9 @@ SELECT
   MAX(recorded_at)                 AS ended_at
 FROM location_samples
 WHERE session_id = $1
+  AND device_id = $2          -- デバイストークンの所有権チェック（管理者は省略）
 GROUP BY session_id, device_id;
+-- 0 行なら 404（自デバイスが所有しない or 不存在）。
 ```
 
 > `total_distance_m` はクライアントが各 fix に付した `distanceDeltaM` の合計で算出する。

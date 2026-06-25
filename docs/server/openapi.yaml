@@ -117,6 +117,8 @@ paths:
     get:
       tags: [query]
       summary: デバイスのセッション一覧（集計サマリ付き）
+      description: >
+        デバイストークンは path.deviceId == token.device を要求（不一致は 404）。管理者は任意の deviceId 可。
       operationId: listDeviceSessions
       security:
         - deviceToken: []
@@ -151,6 +153,8 @@ paths:
     get:
       tags: [query]
       summary: セッションの合計走行距離・件数・期間
+      description: >
+        デバイストークンは対象 session の device_id == token.device を検証（非所有は 404）。管理者は任意。
       operationId: getSessionSummary
       security:
         - deviceToken: []
@@ -171,6 +175,8 @@ paths:
     get:
       tags: [query]
       summary: セッションの生サンプル（ページング）
+      description: >
+        デバイストークンは対象 session の device_id == token.device を検証（非所有は 404）。管理者は任意。
       operationId: listSessionSamples
       security:
         - deviceToken: []
@@ -336,7 +342,9 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: 対象が存在しない
+      description: >
+        対象が存在しない、またはデバイストークンが所有しないリソース
+        （IDOR 対策として存在を漏らさず一律 404）。
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -414,6 +422,7 @@ components:
         dropped/scrubbed は accept-and-drop で破棄した件数で、サイレントなデータ損失を可視化する
         （サーバーは >0 をアラート対象にする）。envelope 全体が解釈不能な場合は received:0 で返し、
         別途 rejected-envelope メトリクスで記録する。
+        各 sample は固定順 scrubbed → dropped → duplicates → inserted で排他分類する（決定的計数）。
       required: [received, inserted, duplicates, dropped, scrubbed]
       properties:
         received:
