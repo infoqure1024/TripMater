@@ -14,6 +14,9 @@ info:
     永久にブロックする。捨ててよいデータでも極力 2xx を返してキューを前進させ、
     非 2xx は「同一バイト列を後で再送すれば成功する一時障害」に限定すること。
     過負荷・一時障害は 503（Retry-After 付き）で返す（429 でも消失はしないが 503 の方が回復が速い）。
+    なお「極力 2xx」方針はクライアントに dead-letter が無いことへの暫定措置
+    （Issue #49: https://github.com/infoqure1024/TripMater/issues/49）。dead-letter 実装後は
+    不正データに本来の 4xx を返す方針へ戻す。捨てた件数は IngestResult の dropped/scrubbed で可視化する。
 
 servers:
   - url: https://api.example.com
@@ -49,7 +52,9 @@ paths:
               $ref: '#/components/schemas/UploadEnvelope'
       responses:
         '200':
-          description: 受領成功（保存 or 重複スキップ完了）。バッチは ack される。
+          description: >
+            受領成功。バッチは ack される（保存・重複スキップに加え、accept-and-drop による
+            破棄/除外を含む。内訳は IngestResult の dropped/scrubbed で可視化）。
           content:
             application/json:
               schema:
@@ -404,11 +409,31 @@ components:
 
     IngestResult:
       type: object
+      description: >
+        不変条件（envelope 解釈成功時）: received = inserted + duplicates + dropped + scrubbed。
+        dropped/scrubbed は accept-and-drop で破棄した件数で、サイレントなデータ損失を可視化する
+        （サーバーは >0 をアラート対象にする）。envelope 全体が解釈不能な場合は received:0 で返し、
+        別途 rejected-envelope メトリクスで記録する。
+      required: [received, inserted, duplicates, dropped, scrubbed]
       properties:
-        received: { type: integer }
-        inserted: { type: integer }
-        duplicates: { type: integer }
-        schemaVersion: { type: integer, enum: [1] }
+        received:
+          type: integer
+          description: 受信した sample 数
+        inserted:
+          type: integer
+          description: 新規保存した数（不正フィールドをクランプ/NULL化して受理したものを含む）
+        duplicates:
+          type: integer
+          description: id 重複でスキップした数（冪等動作）
+        dropped:
+          type: integer
+          description: 個々の sample が解釈不能で破棄した数（envelope は解釈成功）
+        scrubbed:
+          type: integer
+          description: deviceId 不一致で除外した sample 数
+        schemaVersion:
+          type: integer
+          enum: [1]
 
     SessionSummary:
       type: object

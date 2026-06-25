@@ -80,8 +80,10 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 - `UploadQueue.prune()`（容量超過で古いデータ削除）は**定義のみで未配線**＝**サイズ上限なし**。
   → キューは無限に成長し、ポイズンバッチは自動回収されない。
 
-> したがってサーバーの最重要方針は **「捨ててよいデータでも極力 2xx を返してキューを前進させる」**。
+> したがって当面のサーバー方針は **「捨ててよいデータでも極力 2xx を返してキューを前進させる」**。
 > 非 2xx は「**まったく同じバイト列を後で再送すれば成功する一時障害**」に限定する。
+> ⚠️ ただしこれは**クライアントに dead-letter が無いことへの暫定回避策**（[Issue #49]）。
+> #49（dead-letter・`prune` 配線）が入れば、不正データには本来の `400`/`413` を返す方針へ戻す。
 > クライアント側の恒久対策（dead-letter・`prune` 配線・`Retry-After` 尊重）は §10 を参照。
 
 ### リクエストの形（クライアント送信内容）
@@ -135,8 +137,10 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
    - 解釈不能な sample は**サーバー側で黙って捨てて**他を保存し、`200`（ログ/メトリクスに記録）。
 2. **エンベロープ単位の致命的エラー**（JSON 不正、`schemaVersion` 不一致、`samples` 非配列・空）
    - 「同じバイト列を再送しても永久に成功しない」ケース。**4xx で返すとポイズンピル化**する。
-   - 短期的には **2xx（accept-and-drop）でキューを進める**ことを推奨し、サーバー側でアラート。
-   - 恒久的には**クライアントに dead-letter を実装**（§10）した上で `400` を返すのが正道。
+   - 短期的には **2xx（accept-and-drop）でキューを進める**ことを推奨。ただし envelope 自体が
+     解釈不能で sample を数えられない場合は `received:0` で 200 を返し、別途「rejected envelope」
+     メトリクスで記録する（§3.2 の `dropped` は envelope 解釈成功時の per-sample 破棄に使う）。
+   - 恒久的には [Issue #49] の **dead-letter** を実装した上で `400` を返すのが正道（暫定 → 恒久の切替）。
    - `schemaVersion` は**後方互換**を保ち、既知の旧版は受理する（未知の将来版のみ拒否を検討）。
 
 ---
@@ -161,8 +165,10 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 ```json
 {
   "received": 50,
-  "inserted": 48,
+  "inserted": 46,
   "duplicates": 2,
+  "dropped": 1,
+  "scrubbed": 1,
   "schemaVersion": 1
 }
 ```
@@ -170,11 +176,17 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 | フィールド | 説明 |
 |---|---|
 | `received` | 受信した sample 数 |
-| `inserted` | 新規保存した数 |
+| `inserted` | 新規保存した数（不正フィールドをクランプ/NULL 化して受理したものを含む） |
 | `duplicates` | `id` 重複でスキップした数（冪等動作の結果） |
+| `dropped` | 個々の sample が解釈不能で破棄した数（envelope は解釈成功。§2.3-1） |
+| `scrubbed` | `deviceId` 不一致で除外した sample 数（§3.1） |
 
-> `duplicates > 0` でも `200` を返す（再送の正常動作）。ボディは任意——クライアントは
-> ステータスコードしか見ないため、ボディは運用・デバッグ用途。
+> **不変条件**（envelope 解釈成功時）: `received = inserted + duplicates + dropped + scrubbed`。
+> envelope 全体が解釈不能なら `received:0` で 200 を返し、別途「rejected envelope」メトリクスで記録する。
+> `dropped`/`scrubbed` は accept-and-drop で**サイレントに捨てた件数**を可視化する一次ソースで、
+> サーバーは `>0` をアラート対象にする（§7）。
+> `duplicates > 0` でも `200` を返す（再送の正常動作）。ボディはクライアントが見ない（ステータス
+> コードのみ参照）ため運用・観測用だが、**捨てたデータの追跡に不可欠**。
 
 ### 3.3 保存処理（原子性・冪等性）
 
@@ -354,9 +366,12 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 - **タイムアウト**: クライアント 30 秒。タイムアウトは retryable 扱いで再送されるが、無駄打ちを
   避けるためサーバーは余裕を持って応答する。
 - **TLS**: 必須（クライアントは HTTPS を想定）。
-- **監視（最重要）**: **同一バッチが繰り返し失敗＝先頭が前進しない状態**（ポイズンピル、§1.4）を検知する。
-  例: 同一 `sample.id` 群を短時間に N 回以上受信、4xx 連続、特定デバイスの未 ack 滞留。
-  `received/inserted/duplicates` と 4xx 内訳をメトリクス化し、**詰まり**をアラートする。
+- **監視（最重要）**: 2 つの異常を検知する。
+  - **詰まり（ポイズンピル、§1.4）**: 同一バッチが前進しない。例: 同一 `sample.id` 群を短時間に
+    N 回以上受信、4xx 連続、特定デバイスの未 ack 滞留。4xx 内訳をメトリクス化しアラート。
+  - **サイレントな捨て（§3.2 の `dropped`/`scrubbed`）**: accept-and-drop で破棄/除外した件数。
+    `received/inserted/duplicates/dropped/scrubbed` をメトリクス化し、`dropped`/`scrubbed > 0` を
+    アラートする（データが静かに消える兆候）。envelope 解釈不能（rejected envelope）も別カウントで監視。
 - **データ保持/削除**: ユーザーがアプリ側でリセットするとキューから消えるが、サーバー保持は別管理。
   プライバシーポリシーに合わせ保持期間・削除手段を定義（`CLAUDE.md` プライバシー章参照）。
 - **時刻**: すべて UTC 保存。`timestamp` はデバイス時計依存のため、参考に `ingested_at` も保持。
@@ -409,9 +424,10 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 
 ---
 
-## 10. クライアント側への改善提案（別 Issue 候補・優先度順）
+## 10. クライアント側への改善提案（優先度順）
 
 実コード検証で判明した本当のギャップは「データ消失」ではなく**ポイズンピルとキュー無限成長**。
+下記 1・2 は [Issue #49] で追跡中（サーバー側の accept-and-drop 暫定方針はこれが入るまでの措置）。
 優先度順の改善案：
 
 1. **【高】Dead-letter / N 回失敗で先頭バッチを退避**:
@@ -434,3 +450,5 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 ## 付録: OpenAPI
 
 機械可読な API 契約は同ディレクトリの [`openapi.yaml`](./openapi.yaml) を参照。
+
+[Issue #49]: https://github.com/infoqure1024/TripMater/issues/49
