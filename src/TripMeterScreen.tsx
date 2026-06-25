@@ -35,7 +35,10 @@ const COLORS = {
   border: '#222B35',
 };
 
-const DEBUG = __DEV__;
+// 以前は __DEV__（デバッグビルドのみ）だったが、理由別フィルター結果・TUNING・
+// CSV エクスポート・log 点数表示をリリースビルドでも表示するため常時有効にする（Issue #45）。
+// この値は診断パネルの表示制御と、useOdometer の debug（生ログ蓄積）の両方を兼ねる。
+const DEBUG = true;
 
 function fmtTime(totalSec: number): string {
   const h = Math.floor(totalSec / 3600);
@@ -196,7 +199,7 @@ export default function OdometerScreen() {
         )}
       </View>
 
-      {/* デバッグ（開発ビルドのみ） */}
+      {/* 診断パネル（理由別フィルター結果・TUNING・CSV）。リリースビルドでも表示する（Issue #45） */}
       {DEBUG && (
         <View style={styles.debug}>
           <View style={styles.debugRow}>
