@@ -273,6 +273,9 @@ GitHub Actions を用いて、品質ゲート（CI）とビルド配布（CD）�
 
 - `test` は `react-native-background-actions` のネイティブ依存を `__mocks__/` の手動モックで解決済みのため、
   追加のネイティブセットアップなしで CI ランナー上で完結する（`jest.config.js` 参照）。
+- カバレッジを品質シグナルにする場合、現状 `jest.config.js` には `collectCoverageFrom`（`src/` を対象に）と
+  `coverageThreshold`（下限）が未設定で、`--coverage` はテストが触れたファイルのみ計測し下限も強制されない。
+  ワークフロー実装（別 Issue）時に併せて追加する。
 - `android-build` は Android SDK のセットアップが必要（`android-actions/setup-android` 等）。重く時間がかかるため、
   PR では `assembleDebug` のみ、`assembleRelease` は CD 側で行う。
 - iOS ビルド検証（`xcodebuild` / CocoaPods）は **任意・後続**。macOS ランナーが必要でコストが高いため、

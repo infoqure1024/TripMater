@@ -529,7 +529,7 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
   2. **デプロイ前にマイグレーションを適用**（リリースと同一コミットの up を実行）。後方互換を保ち、
      ロールバック可能な順序（expand → migrate → contract）を守る。
   3. デプロイ先（Cloud Run / Fly.io / Render 等、#58）へロールアウト。
-  4. **ヘルスチェックゲート**: `GET /healthz` が 200 を返すまで待ち、失敗ならロールバック（§9・#50）。
+  4. **ヘルスチェックゲート**: `GET /healthz` が 200 を返すまで待ち、失敗ならロールバック（`/healthz` は #50 で定義）。
 - **シークレット**: `DATABASE_URL`・`ADMIN_API_KEY` 等は各 Environment の Secrets から注入。コード・ログに残さない（§5.4・§7）。
 - **本番デプロイは手動承認**（environment protection rule）を挟むことを推奨。
 - **TLS / 接続プール**: 本番は HTTPS 必須、DB は PgBouncer 等のプール経由（#58・§7）。
@@ -544,7 +544,7 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 - #58 [server][infra] デプロイ構成（Dockerfile / デプロイ先 / 接続プール / TLS）— CD の実行基盤。
 - #59 [server][testing] 統合テスト — CI の `test` ジョブが実行する本体。
 - #57 [server][observability] メトリクス / ログ衛生 — CD 後スモークと CI のログ衛生テスト。
-- 本章を起点に **[server][ci] CI/CD パイプライン**の専用 Issue を新設し、エピック #60 の子として追跡する。
+- #62 [server][ci] CI/CD パイプライン — 本章を実装する専用 Issue（エピック #60 の子）。
 
 ---
 
