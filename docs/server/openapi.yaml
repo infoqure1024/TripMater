@@ -7,9 +7,13 @@ info:
     位置データを受信・保存・参照するサーバー API。
     詳細仕様は location-ingest-server-spec.md を参照。
 
-    重要: クライアントは 2xx でバッチを ack（キューから削除）、4xx でバッチを恒久破棄、
-    5xx / ネットワークエラーのみ再送する。レート制限・一時障害は 503（Retry-After 付き）で
-    返すこと。429 / 401 / 403 はバッチ破棄＝データ消失につながるため ingest では極力避ける。
+    重要（クライアント実挙動）: データがキューから消えるのは 2xx を受けた時だけ。
+    4xx を含むあらゆる非 2xx ではバッチは破棄されず、キュー先頭に残って再送され続ける
+    （5xx / network は即時バックオフ再送、それ以外は定期フラッシュで再送）。
+    したがって恒久的に成功しないバッチへ非 2xx を返すと「ポイズンピル」となり後続を
+    永久にブロックする。捨ててよいデータでも極力 2xx を返してキューを前進させ、
+    非 2xx は「同一バイト列を後で再送すれば成功する一時障害」に限定すること。
+    過負荷・一時障害は 503（Retry-After 付き）で返す（429 でも消失はしないが 503 の方が回復が速い）。
 
 servers:
   - url: https://api.example.com
@@ -51,25 +55,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/IngestResult'
         '400':
-          description: スキーマ不正・必須欠落・空バッチ。クライアントはバッチを破棄する。
+          description: >
+            エンベロープ致命傷（JSON不正・schemaVersion不一致・samples非配列/空等）。
+            データは破棄されず再送が続き先頭で詰まる（ポイズンピル）。恒久的に不正なバッチには
+            極力 2xx（accept-and-drop）で応じ、400 は避ける。
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: トークン無効/期限切れ。注意:クライアントはバッチを恒久破棄する。
+          description: >
+            トークン無効/期限切れ。データ消失はせず、クライアントは authError を表示のうえ
+            定期再送する（トークン修正で回復）。
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: deviceId とトークン不一致。注意:クライアントはバッチを恒久破棄する。
+          description: >
+            deviceId とトークン不一致。データ消失はせず定期再送される。混在サンプルは
+            スクラブして 200 を推奨（バッチ全件が明確に不正な時のみ 403）。
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '413':
-          description: ペイロード過大（上限 1000 件 / 1MB 目安超過）。
+          description: >
+            ペイロード過大（上限 1000 件 / 1MB 目安超過）。再送で詰まるため、
+            クライアントの batchSize 上限と整合させ発生を防ぐ。
           content:
             application/json:
               schema:
@@ -82,8 +95,9 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: >
-            過負荷・メンテ・DB 一時障害。クライアントは再送する。
-            バックプレッシャー/レート制限はこのコードで表現する（429 は使わない）。
+            過負荷・メンテ・DB 一時障害。5xx なので即時バックオフ再送に乗り回復が速い。
+            バックプレッシャー/レート制限はこのコードで表現することを推奨（429 でも消失はしないが
+            定期フラッシュ頼みで回復が遅い）。
           headers:
             Retry-After:
               description: 再送までの推奨待機秒数
