@@ -38,7 +38,8 @@ const COLORS = {
 // 以前は __DEV__（デバッグビルドのみ）だったが、理由別フィルター結果・TUNING・
 // CSV エクスポート・log 点数表示をリリースビルドでも表示するため常時有効にする（Issue #45）。
 // この値は診断パネルの表示制御と、useOdometer の debug（生ログ蓄積）の両方を兼ねる。
-const DEBUG = true;
+// 診断パネル表示 + 生ログ蓄積（リリース含む / Issue #45）
+const SHOW_DIAGNOSTICS = true;
 
 function fmtTime(totalSec: number): string {
   const h = Math.floor(totalSec / 3600);
@@ -65,7 +66,7 @@ export default function OdometerScreen() {
   const { requestPermissions } = useLocationPermission();
 
   const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
-    debug: DEBUG,
+    debug: SHOW_DIAGNOSTICS,
     config,
     onCountedFix: uploader.enqueue,
   });
@@ -200,7 +201,7 @@ export default function OdometerScreen() {
       </View>
 
       {/* 診断パネル（理由別フィルター結果・TUNING・CSV）。リリースビルドでも表示する（Issue #45） */}
-      {DEBUG && (
+      {SHOW_DIAGNOSTICS && (
         <View style={styles.debug}>
           <View style={styles.debugRow}>
             <Text style={styles.debugText}>log: {logCount} 点</Text>
