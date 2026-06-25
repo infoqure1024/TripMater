@@ -16,7 +16,8 @@ info:
     過負荷・一時障害は 503（Retry-After 付き）で返す（429 でも消失はしないが 503 の方が回復が速い）。
     なお「極力 2xx」方針はクライアントに dead-letter が無いことへの暫定措置
     （Issue #49: https://github.com/infoqure1024/TripMater/issues/49）。dead-letter 実装後は
-    不正データに本来の 4xx を返す方針へ戻す。捨てた件数は IngestResult の dropped/scrubbed で可視化する。
+    不正データに本来の 4xx を返す方針へ戻す。捨てた件数は IngestResult の dropped で可視化する。
+    device_id は認証トークンから割り当て、sample.deviceId 不一致は deviceMismatch に計上のみ（R2）。
 
 servers:
   - url: https://api.example.com
@@ -54,7 +55,7 @@ paths:
         '200':
           description: >
             受領成功。バッチは ack される（保存・重複スキップに加え、accept-and-drop による
-            破棄/除外を含む。内訳は IngestResult の dropped/scrubbed で可視化）。
+            破棄を含む。内訳は IngestResult の dropped で可視化）。
           content:
             application/json:
               schema:
@@ -70,16 +71,16 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           description: >
-            トークン無効/期限切れ。データ消失はせず、クライアントは authError を表示のうえ
-            定期再送する（トークン修正で回復）。
+            トークン無効/失効/期限切れ（revoked_at 非NULL or expires_at 経過、R1）。データ消失はせず、
+            クライアントは authError を表示のうえ定期再送する（トークン更新で回復）。
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: >
-            deviceId とトークン不一致。データ消失はせず定期再送される。混在サンプルは
-            スクラブして 200 を推奨（バッチ全件が明確に不正な時のみ 403）。
+            デバイスが無効化済み（disabled_at、R1）。データ消失はせず定期再送される（再有効化で回復）。
+            deviceId 不一致は 403 にせず device_id をトークンから割り当て deviceMismatch に計上（R2）。
           content:
             application/json:
               schema:
@@ -418,12 +419,14 @@ components:
     IngestResult:
       type: object
       description: >
-        不変条件（envelope 解釈成功時）: received = inserted + duplicates + dropped + scrubbed。
-        dropped/scrubbed は accept-and-drop で破棄した件数で、サイレントなデータ損失を可視化する
+        不変条件（envelope 解釈成功時）: received = inserted + duplicates + dropped。
+        dropped は accept-and-drop で破棄した件数で、サイレントなデータ損失を可視化する
         （サーバーは >0 をアラート対象にする）。envelope 全体が解釈不能な場合は received:0 で返し、
         別途 rejected-envelope メトリクスで記録する。
-        各 sample は固定順 scrubbed → dropped → duplicates → inserted で排他分類する（決定的計数）。
-      required: [received, inserted, duplicates, dropped, scrubbed]
+        各 sample は固定順 dropped → duplicates → inserted で排他分類する（決定的計数）。
+        deviceMismatch は分配に含めない独立カウンタ（device_id はトークンから割り当てるため、
+        sample.deviceId 不一致は除外せず計上のみ。R2 / client バグ検知用）。
+      required: [received, inserted, duplicates, dropped]
       properties:
         received:
           type: integer
@@ -437,9 +440,11 @@ components:
         dropped:
           type: integer
           description: 個々の sample が解釈不能で破棄した数（envelope は解釈成功）
-        scrubbed:
+        deviceMismatch:
           type: integer
-          description: deviceId 不一致で除外した sample 数
+          description: >
+            sample.deviceId がトークンのデバイスと食い違った数（分配外の独立カウンタ。
+            該当 sample もトークンの device_id で保存される。R2）
         schemaVersion:
           type: integer
           enum: [1]

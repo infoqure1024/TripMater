@@ -151,12 +151,15 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 
 位置サンプルのバッチを受信して保存する。**冪等**。
 
-- 認証: `Authorization: Bearer <device-token>`（§5）
+- 認証: `Authorization: Bearer <device-token>`（§5）。**トークンの有効性を必ず検証**する
+  （`revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`、不成立は `401`／
+  デバイスが無効化 `disabled_at` なら `403`。詳細 §5.2、R1）。
 - リクエストボディ: §2.1 エンベロープ
-- `deviceId` 検証: ボディ内の `sample.deviceId` は、トークンに紐づくデバイスと一致すること。
-  不一致サンプルが混ざってもバッチ全体を `403` で弾くと**ポイズンピル化**する（§1.4）。
-  推奨は**不一致 sample をスクラブ（除外）して残りを保存し `200`**。バッチ全件が別デバイス
-  由来など明確な不正時のみ `403`（運用上は単一デバイス＝単一トークンを徹底し発生を防ぐ）。
+- **`device_id` はトークンから割り当てる**（R2）: `sample.deviceId` は信頼せず、保存する
+  `location_samples.device_id` は**認証済みトークンのデバイス**を使う。これにより「他デバイス
+  名義の書き込み」事故と、deviceId 不一致による 403 ポイズンピル経路が構造的に消える。
+  `sample.deviceId` がトークンのデバイスと食い違う場合は **`deviceMismatch` に計上して警告ログ**を
+  残すだけ（除外も 4xx もしない＝該当 sample もトークンの device_id で保存する）。
 
 ### 3.2 レスポンス
 
@@ -165,10 +168,10 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 ```json
 {
   "received": 50,
-  "inserted": 46,
+  "inserted": 47,
   "duplicates": 2,
   "dropped": 1,
-  "scrubbed": 1,
+  "deviceMismatch": 0,
   "schemaVersion": 1
 }
 ```
@@ -179,25 +182,27 @@ Odometer（React Native 走行距離計測アプリ）の `HttpUploadClient` が
 | `inserted` | 新規保存した数（不正フィールドをクランプ/NULL 化して受理したものを含む） |
 | `duplicates` | `id` 重複でスキップした数（冪等動作の結果） |
 | `dropped` | 個々の sample が解釈不能で破棄した数（envelope は解釈成功。§2.3-1） |
-| `scrubbed` | `deviceId` 不一致で除外した sample 数（§3.1） |
+| `deviceMismatch` | `sample.deviceId` がトークンのデバイスと食い違った数（**分配外の独立カウンタ**。該当 sample もトークンの device_id で保存され inserted/duplicates にも数えられる。client バグ検知用。§3.1, R2） |
 
-> **不変条件**（envelope 解釈成功時）: `received = inserted + duplicates + dropped + scrubbed`。
+> **不変条件**（envelope 解釈成功時）: `received = inserted + duplicates + dropped`。
+> `deviceMismatch` はこの分配に**含めない**（独立の警告カウンタ）。
 > envelope 全体が解釈不能なら `received:0` で 200 を返し、別途「rejected envelope」メトリクスで記録する。
-> `dropped`/`scrubbed` は accept-and-drop で**サイレントに捨てた件数**を可視化する一次ソースで、
-> サーバーは `>0` をアラート対象にする（§7）。
+> `dropped` は accept-and-drop で**サイレントに捨てた件数**を可視化する一次ソースで、
+> サーバーは `dropped > 0`／`deviceMismatch > 0` をアラート対象にする（§7）。
 > `duplicates > 0` でも `200` を返す（再送の正常動作）。ボディはクライアントが見ない（ステータス
 > コードのみ参照）ため運用・観測用だが、**捨てたデータの追跡に不可欠**。
 
 ### 3.3 保存処理（判定順序・原子性・冪等性）
 
 各 sample は**次の固定順で判定し、最初に該当したバケットへ排他的に分類**する（§3.2 の不変条件
-`received = inserted + duplicates + dropped + scrubbed` を**決定的**にするため。順序が曖昧だと
-二重計上で不変条件が壊れる）:
+`received = inserted + duplicates + dropped` を**決定的**にするため。順序が曖昧だと二重計上で
+不変条件が壊れる）。`device_id` はこの前段でトークンから割り当て済み（§3.1, R2）:
 
-1. **scrubbed**: `deviceId` がトークンのデバイスと不一致 → 除外（§3.1）。
-2. **dropped**: 必須フィールド欠落・解釈不能で**クランプでも救えない** → 破棄（§2.3-1）。
-3. **duplicates**: INSERT 時 `ON CONFLICT (id)` で既存 → スキップ。
-4. **inserted**: 上記以外 → 保存（任意フィールドの逸脱はクランプ/NULL 化済み）。
+1. **dropped**: 必須フィールド欠落・解釈不能で**クランプでも救えない** → 破棄（§2.3-1）。
+2. **duplicates**: INSERT 時 `ON CONFLICT (id)` で既存 → スキップ。
+3. **inserted**: 上記以外 → 保存（任意フィールドの逸脱はクランプ/NULL 化済み）。
+
+※ `sample.deviceId` 不一致は除外せず `deviceMismatch`（分配外の独立カウンタ）に計上するのみ（§3.1）。
 
 1 リクエスト = 1 トランザクションで、上記を通過した sample を `INSERT ... ON CONFLICT (id) DO NOTHING`。
 
@@ -225,7 +230,7 @@ ON CONFLICT (id) DO NOTHING;
 |---|---|---|
 | `400` | エンベロープ致命傷（JSON不正等）。**多用注意** | 即時リトライなし＋定期再送 → **永久に詰まる**ので原則避ける（§2.3） |
 | `401` | トークン無効/期限切れ | データ保持。`authError` 表示＋定期再送。トークン修正で回復 |
-| `403` | バッチ全件が別デバイス由来等の明確な不正 | データ保持＋定期再送。混在時はスクラブして 200 推奨（§3.1） |
+| `403` | デバイスが無効化済み（`disabled_at`） | データ保持＋定期再送（再有効化で回復）。deviceId 不一致は 403 にせず `deviceMismatch` 計上（§3.1, R2） |
 | `413` | ペイロード過大（§7 上限超過） | 定期再送で詰まる。**クライアント `batchSize` 上限と整合**させ本来発生させない |
 | `500/502/504` | サーバー内部エラー | 即時バックオフ再送。回復が速い |
 | `503` | 過負荷・メンテ・DB 一時障害（`Retry-After` 付与） | 即時バックオフ再送。**過負荷時の推奨**（§1.3） |
@@ -275,6 +280,10 @@ GROUP BY session_id, device_id;
 > `total_distance_m` はクライアントが各 fix に付した `distanceDeltaM` の合計で算出する。
 > これによりサーバーは距離計算ロジックを持たずに済み、アプリの計測値と一致する。
 
+> ⚠️ `sessionId` は任意（§2.2）。未設定の sample はセッション系エンドポイントに現れない
+> （`session_id IS NULL` に集約され参照外）。セッション単位の参照を要するなら、クライアントは
+> 常に `sessionId` を付与すること。
+
 ---
 
 ## 5. 認証・デバイス/トークン管理
@@ -283,12 +292,19 @@ GROUP BY session_id, device_id;
 
 - 不透明（opaque）ランダムトークン。例: 32 バイトを base64url 化（`tok_` プレフィックス付与）。
 - DB には**ハッシュ（SHA-256）のみ保存**。平文はリセット/発行時に一度だけ返す。
-- 検証時は受領トークンをハッシュして `token_hash` と定数時間比較。
+- 検証時は受領トークンを SHA-256 ハッシュし、ユニークインデックス `token_hash` で等価検索する
+  （トークンは高エントロピーのためインデックス検索でタイミング攻撃の懸念はない）。
 
-### 5.2 トークンとデバイスの紐付け
+### 5.2 トークンとデバイスの紐付け・有効性検証
 
 - 1 デバイス = 1 アクティブトークンを基本（複数許容も可）。
-- `location_samples` の `deviceId` は、認証されたトークンのデバイスと一致必須。
+- **保存する `location_samples.device_id` は、認証されたトークンのデバイスから割り当てる**（R2）。
+  `sample.deviceId` は信頼せず、整合チェック用メトリクス（`deviceMismatch`）に留める（§3.1）。
+- **トークン有効性検証（R1）**: ingest／読み取りの各リクエストで以下を必ず検証する。
+  - トークン: `revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())` を満たすこと
+    （不成立は `401`）。
+  - デバイス: `devices.disabled_at IS NULL` であること（無効化済みは `403`）。
+  - 通過後に `api_tokens.last_used_at` を更新（高頻度なら非同期／間引き更新でも可）。
 
 ### 5.3 デバイス登録・発行・失効フロー（管理者操作）
 
@@ -386,9 +402,13 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
 - **監視（最重要）**: 2 つの異常を検知する。
   - **詰まり（ポイズンピル、§1.4）**: 同一バッチが前進しない。例: 同一 `sample.id` 群を短時間に
     N 回以上受信、4xx 連続、特定デバイスの未 ack 滞留。4xx 内訳をメトリクス化しアラート。
-  - **サイレントな捨て（§3.2 の `dropped`/`scrubbed`）**: accept-and-drop で破棄/除外した件数。
-    `received/inserted/duplicates/dropped/scrubbed` をメトリクス化し、`dropped`/`scrubbed > 0` を
-    アラートする（データが静かに消える兆候）。envelope 解釈不能（rejected envelope）も別カウントで監視。
+  - **サイレントな捨て（§3.2 の `dropped`）**: accept-and-drop で破棄した件数。
+    `received/inserted/duplicates/dropped` をメトリクス化し、`dropped > 0` をアラートする
+    （データが静かに消える兆候）。envelope 解釈不能（rejected envelope）も別カウントで監視。
+  - **client バグの兆候（`deviceMismatch`）**: `sample.deviceId` とトークンの不一致件数。
+    `> 0` は client 側の deviceId 設定バグの可能性。デバイス別に監視する。
+- **ログの機密情報**: `Authorization` ヘッダ／生トークンや、生の `lat`/`lng`（PII）を平文ログに残さない。
+  必要時はマスキング／集約のうえ最小限に留める。
 - **データ保持/削除**: ユーザーがアプリ側でリセットするとキューから消えるが、サーバー保持は別管理。
   プライバシーポリシーに合わせ保持期間・削除手段を定義（`CLAUDE.md` プライバシー章参照）。
 - **時刻**: すべて UTC 保存。`timestamp` はデバイス時計依存のため、参考に `ingested_at` も保持。
@@ -403,7 +423,7 @@ CREATE INDEX idx_samples_device_time ON location_samples(device_id, recorded_at)
   |  POST /api/v1/locations        |                              |
   |  Bearer <token> + 50 samples   |                              |
   |------------------------------->|  トークン検証                |
-  |                                |  deviceId 突合                |
+  |                                |  device_id をトークンから割当 |
   |                                |  BEGIN                       |
   |                                |  INSERT ... ON CONFLICT ----->|
   |                                |  COMMIT                      |
