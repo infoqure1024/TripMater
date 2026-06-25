@@ -237,7 +237,6 @@ describe('save failure rollback', () => {
 
   test('enqueue rolls back in-memory state when save fails', async () => {
     const storage = new FailingStorage();
-    const q = new UploadQueue(new InMemoryStorage()); // use clean queue
     const q2 = new UploadQueue(storage);
     await q2.enqueue(makeSample('a')); // succeeds
     storage.shouldFail = true;
