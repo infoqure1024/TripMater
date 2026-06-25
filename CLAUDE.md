@@ -245,8 +245,8 @@ android/
 - `react-native-background-actions` ^4.1.0（クロスプラットフォームのバックグラウンドタスク／FGS）
 - `@sayem314/react-native-keep-awake` ^1.4.0（画面常時点灯）
 - `react-native-fs` ^2.20.0（CSV 書き出し・config 永続化・upload キュー）
-- `react-native-keychain` ^9.2.2（API トークンの安全な保存）
-- `@react-native-community/netinfo` ^11.4.1（オンライン状態の監視）
+- `react-native-keychain` ^10.0.0（API トークンの安全な保存）
+- `@react-native-community/netinfo` ^12.0.1（オンライン状態の監視）
 
 ## CI/CD（継続的インテグレーション / デリバリー）
 
