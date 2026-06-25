@@ -245,5 +245,59 @@ android/
 - `react-native-background-actions` ^4.1.0（クロスプラットフォームのバックグラウンドタスク／FGS）
 - `@sayem314/react-native-keep-awake` ^1.4.0（画面常時点灯）
 - `react-native-fs` ^2.20.0（CSV 書き出し・config 永続化・upload キュー）
-- `react-native-keychain` ^9.2.2（API トークンの安全な保存）
-- `@react-native-community/netinfo` ^11.4.1（オンライン状態の監視）
+- `react-native-keychain` ^10.0.0（API トークンの安全な保存）
+- `@react-native-community/netinfo` ^12.0.1（オンライン状態の監視）
+
+## CI/CD（継続的インテグレーション / デリバリー）
+
+GitHub Actions を用いて、品質ゲート（CI）とビルド配布（CD）を自動化する。
+ワークフロー定義は `.github/workflows/` に置く（別 Issue で実装。本章は仕様）。
+
+### 方針
+
+- **CI は PR とプッシュで必ず回す**。`main` への直接マージ前に lint / 型 / テストを green にする。
+- **再現性**: Node は `package.json` の `engines.node`（`>=20`）に従い、`npm ci`（lockfile 厳守）で固定。
+- **キャッシュ**: npm（`~/.npm`）と Gradle（`~/.gradle/caches`・`~/.gradle/wrapper`）をキャッシュして時間短縮。
+- **並列ジョブ**: `lint` / `typecheck` / `test` は独立ジョブで並列実行。`android-build` はそれらが
+  通った後に走らせる（fail-fast でムダなビルドを避ける）。
+- **秘密情報はリポジトリに置かない**: 署名鍵・Play / App Store の資格情報は GitHub Secrets に格納。
+
+### CI（quality gate / 全 PR・プッシュ）
+
+| ジョブ | コマンド | 内容 |
+|---|---|---|
+| `lint` | `npm run lint` | ESLint（`@react-native` 設定）。Prettier 整形も含む |
+| `typecheck` | `npm run typecheck` | `tsc --noEmit`。型エラーで失敗 |
+| `test` | `npm test -- --ci --coverage` | Jest（`react-native` preset）。`__tests__/` のユニット + 統合テスト。カバレッジを Artifact 出力 |
+| `android-build` | `cd android && ./gradlew assembleDebug` | Android デバッグ APK のビルド検証（JDK 17 / Gradle 8.14.3）。`lint`・`typecheck`・`test` 通過後に実行 |
+
+- `test` は `react-native-background-actions` のネイティブ依存を `__mocks__/` の手動モックで解決済みのため、
+  追加のネイティブセットアップなしで CI ランナー上で完結する（`jest.config.js` 参照）。
+- カバレッジを品質シグナルにする場合、現状 `jest.config.js` には `collectCoverageFrom`（`src/` を対象に）と
+  `coverageThreshold`（下限）が未設定で、`--coverage` はテストが触れたファイルのみ計測し下限も強制されない。
+  ワークフロー実装（別 Issue）時に併せて追加する。
+- `android-build` は Android SDK のセットアップが必要（`android-actions/setup-android` 等）。重く時間がかかるため、
+  PR では `assembleDebug` のみ、`assembleRelease` は CD 側で行う。
+- iOS ビルド検証（`xcodebuild` / CocoaPods）は **任意・後続**。macOS ランナーが必要でコストが高いため、
+  リリース前のみ手動またはタグ起動に限定する。
+
+### CD（配布 / タグ・リリース起動）
+
+- **トリガ**: `v*` タグの push、または GitHub Release 作成時。
+- **Android**: `./gradlew assembleRelease`（APK）/ `bundleRelease`（AAB）を**リリース署名鍵**でビルドする。
+  - ⚠️ 現状 `android/app/build.gradle` の `release` ビルドは **`signingConfig signingConfigs.debug`（デバッグ署名）**
+    のままで、配布用署名鍵が未設定。CD で本番配布する前に、リリース用 keystore を作成し GitHub Secrets
+    （`ANDROID_KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD`）から注入する署名設定へ
+    切り替える必要がある（Play Console 提出の前提）。
+  - 成果物（APK/AAB/マッピングファイル）は Release Assets として添付、または Play Console 内部テストトラックへ
+    `r0adkll/upload-google-play` 等で自動アップロード（資格情報は Secrets）。
+- **Play Console 連携**: 「Google Play Console 申告チェックリスト」（FGS / バックグラウンド位置の宣言）が
+  未完了だと審査に通らないため、CD の Play アップロードは**手動承認（environment protection）**を挟む。
+- **iOS**: TestFlight 配布は任意・後続（macOS ランナー + Fastlane 等）。
+
+### ブランチ保護 / マージ要件（推奨設定）
+
+- `main` のブランチ保護で **`lint` / `typecheck` / `test` を Required status checks** に指定。
+- PR は 1 名以上のレビュー必須。`android-build` は重いので Required にするかは運用で判断（任意推奨）。
+
+> サーバー側（`docs/server/`）の CI/CD は別系統。受信サーバー仕様書 §11「CI/CD」を参照。
