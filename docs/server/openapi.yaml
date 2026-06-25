@@ -1,0 +1,497 @@
+openapi: 3.0.3
+info:
+  title: Odometer Location Ingest API
+  version: 1.0.0
+  description: >
+    Odometer（React Native 走行距離計測アプリ）の HttpUploadClient が送信する
+    位置データを受信・保存・参照するサーバー API。
+    詳細仕様は location-ingest-server-spec.md を参照。
+
+    重要（クライアント実挙動）: データがキューから消えるのは 2xx を受けた時だけ。
+    4xx を含むあらゆる非 2xx ではバッチは破棄されず、キュー先頭に残って再送され続ける
+    （5xx / network は即時バックオフ再送、それ以外は定期フラッシュで再送）。
+    したがって恒久的に成功しないバッチへ非 2xx を返すと「ポイズンピル」となり後続を
+    永久にブロックする。捨ててよいデータでも極力 2xx を返してキューを前進させ、
+    非 2xx は「同一バイト列を後で再送すれば成功する一時障害」に限定すること。
+    過負荷・一時障害は 503（Retry-After 付き）で返す（429 でも消失はしないが 503 の方が回復が速い）。
+    なお「極力 2xx」方針はクライアントに dead-letter が無いことへの暫定措置
+    （Issue #49: https://github.com/infoqure1024/TripMater/issues/49）。dead-letter 実装後は
+    不正データに本来の 4xx を返す方針へ戻す。捨てた件数は IngestResult の dropped で可視化する。
+    device_id は認証トークンから割り当て、sample.deviceId 不一致は deviceMismatch に計上のみ（R2）。
+
+servers:
+  - url: https://api.example.com
+    description: 本番（送信先 baseUrl はアプリ設定で可変）
+
+tags:
+  - name: ingest
+    description: 位置サンプルの受信
+  - name: query
+    description: 閲覧・集計（拡張・任意）
+  - name: admin
+    description: デバイス登録・トークン管理
+
+security:
+  - deviceToken: []
+
+paths:
+  /api/v1/locations:
+    post:
+      tags: [ingest]
+      summary: 位置サンプルのバッチを受信（冪等）
+      description: >
+        sample.id を主キーに ON CONFLICT DO NOTHING で保存する。
+        重複再送でも 200 を返す。1 リクエスト = 1 トランザクションで原子的に処理する。
+      operationId: ingestLocations
+      security:
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadEnvelope'
+      responses:
+        '200':
+          description: >
+            受領成功。バッチは ack される（保存・重複スキップに加え、accept-and-drop による
+            破棄を含む。内訳は IngestResult の dropped で可視化）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResult'
+        '400':
+          description: >
+            エンベロープ致命傷（JSON不正・schemaVersion不一致・samples非配列/空等）。
+            データは破棄されず再送が続き先頭で詰まる（ポイズンピル）。恒久的に不正なバッチには
+            極力 2xx（accept-and-drop）で応じ、400 は避ける。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >
+            トークン無効/失効/期限切れ（revoked_at 非NULL or expires_at 経過、R1）。データ消失はせず、
+            クライアントは authError を表示のうえ定期再送する（トークン更新で回復）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: >
+            デバイスが無効化済み（disabled_at、R1）。データ消失はせず定期再送される（再有効化で回復）。
+            deviceId 不一致は 403 にせず device_id をトークンから割り当て deviceMismatch に計上（R2）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: >
+            ペイロード過大（上限 1000 件 / 1MB 目安超過）。再送で詰まるため、
+            クライアントの batchSize 上限と整合させ発生を防ぐ。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: サーバー内部エラー。クライアントは再送する。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >
+            過負荷・メンテ・DB 一時障害。5xx なので即時バックオフ再送に乗り回復が速い。
+            バックプレッシャー/レート制限はこのコードで表現することを推奨（429 でも消失はしないが
+            定期フラッシュ頼みで回復が遅い）。
+          headers:
+            Retry-After:
+              description: 再送までの推奨待機秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/devices/{deviceId}/sessions:
+    get:
+      tags: [query]
+      summary: デバイスのセッション一覧（集計サマリ付き）
+      description: >
+        デバイストークンは path.deviceId == token.device を要求（不一致は 404）。管理者は任意の deviceId 可。
+      operationId: listDeviceSessions
+      security:
+        - deviceToken: []
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: セッション一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionSummary'
+                  nextCursor:
+                    type: string
+                    nullable: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/sessions/{sessionId}/summary:
+    get:
+      tags: [query]
+      summary: セッションの合計走行距離・件数・期間
+      description: >
+        デバイストークンは対象 session の device_id == token.device を検証（非所有は 404）。管理者は任意。
+      operationId: getSessionSummary
+      security:
+        - deviceToken: []
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: セッションサマリ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionSummary'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/sessions/{sessionId}/samples:
+    get:
+      tags: [query]
+      summary: セッションの生サンプル（ページング）
+      description: >
+        デバイストークンは対象 session の device_id == token.device を検証（非所有は 404）。管理者は任意。
+      operationId: listSessionSamples
+      security:
+        - deviceToken: []
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 200, maximum: 1000 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: サンプル一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LocationSample'
+                  nextCursor:
+                    type: string
+                    nullable: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/devices:
+    post:
+      tags: [admin]
+      summary: デバイス登録（任意でトークン同時発行）
+      operationId: registerDevice
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId]
+              properties:
+                deviceId: { type: string }
+                name: { type: string }
+                issueToken:
+                  type: boolean
+                  default: true
+                  description: true の場合、登録と同時にトークンを発行して返す
+      responses:
+        '201':
+          description: 登録完了。issueToken=true の場合 token を含む（平文はこの一度のみ）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenIssueResult'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: 既に存在する deviceId
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/admin/devices/{deviceId}/tokens:
+    get:
+      tags: [admin]
+      summary: トークン一覧（メタのみ、平文は返さない）
+      operationId: listDeviceTokens
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: トークンメタ一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenMeta'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [admin]
+      summary: トークン発行 / ローテーション
+      operationId: issueDeviceToken
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expiresAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: 失効日時。NULL/省略で無期限
+      responses:
+        '201':
+          description: 発行完了（平文 token はこの一度のみ返す）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenIssueResult'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/devices/{deviceId}/tokens/{tokenId}:
+    delete:
+      tags: [admin]
+      summary: トークン失効
+      operationId: revokeDeviceToken
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: tokenId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: 失効完了
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    deviceToken:
+      type: http
+      scheme: bearer
+      description: デバイス単位の Bearer トークン（ハッシュ化して DB 保存）
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+      description: 管理 API 用のキー（ingest トークンとは別系統）
+
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema: { type: string }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: 認証失敗
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: >
+        対象が存在しない、またはデバイストークンが所有しないリソース
+        （IDOR 対策として存在を漏らさず一律 404）。
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    UploadEnvelope:
+      type: object
+      required: [schemaVersion, samples]
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [1]
+        samples:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/LocationSample'
+
+    LocationSample:
+      type: object
+      required: [id, deviceId, timestamp, lat, lng, speedMps, accuracyM]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 冪等キー（重複排除に使用）
+        deviceId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+          description: epoch ms（取得時刻）
+        lat:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        speedMps:
+          type: number
+          format: float
+          minimum: 0
+          description: カルマン平滑化後の速度 (m/s)
+        accuracyM:
+          type: number
+          format: float
+          minimum: 0
+        rawSpeedMps:
+          type: number
+          format: float
+        headingDeg:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 360
+        altitudeM:
+          type: number
+          format: float
+        sessionId:
+          type: string
+        distanceDeltaM:
+          type: number
+          format: float
+          description: この fix で加算された距離 (m)
+
+    IngestResult:
+      type: object
+      description: >
+        不変条件（envelope 解釈成功時）: received = inserted + duplicates + dropped。
+        dropped は accept-and-drop で破棄した件数で、サイレントなデータ損失を可視化する
+        （サーバーは >0 をアラート対象にする）。envelope 全体が解釈不能な場合は received:0 で返し、
+        別途 rejected-envelope メトリクスで記録する。
+        各 sample は固定順 dropped → duplicates → inserted で排他分類する（決定的計数）。
+        deviceMismatch は分配に含めない独立カウンタ（device_id はトークンから割り当てるため、
+        sample.deviceId 不一致は除外せず計上のみ。R2 / client バグ検知用）。
+      required: [received, inserted, duplicates, dropped]
+      properties:
+        received:
+          type: integer
+          description: 受信した sample 数
+        inserted:
+          type: integer
+          description: 新規保存した数（不正フィールドをクランプ/NULL化して受理したものを含む）
+        duplicates:
+          type: integer
+          description: id 重複でスキップした数（冪等動作）
+        dropped:
+          type: integer
+          description: 個々の sample が解釈不能で破棄した数（envelope は解釈成功）
+        deviceMismatch:
+          type: integer
+          description: >
+            sample.deviceId がトークンのデバイスと食い違った数（分配外の独立カウンタ。
+            該当 sample もトークンの device_id で保存される。R2）
+        schemaVersion:
+          type: integer
+          enum: [1]
+
+    SessionSummary:
+      type: object
+      properties:
+        sessionId: { type: string }
+        deviceId: { type: string }
+        sampleCount: { type: integer }
+        totalDistanceM:
+          type: number
+          format: double
+          description: distanceDeltaM の合計
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+
+    TokenIssueResult:
+      type: object
+      properties:
+        deviceId: { type: string }
+        tokenId: { type: string }
+        token:
+          type: string
+          description: 平文トークン。発行時の一度だけ返る。
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    TokenMeta:
+      type: object
+      properties:
+        tokenId: { type: string }
+        deviceId: { type: string }
+        prefix: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
