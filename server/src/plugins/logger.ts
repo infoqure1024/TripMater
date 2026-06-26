@@ -27,12 +27,14 @@ function maskObject(obj: unknown): unknown {
   return obj;
 }
 
-// pino serializer for request objects — masks Authorization header and PII fields
+// pino serializer for request objects — masks Authorization header.
+// Note: body is NOT included here because pino's req serializer runs before
+// Fastify parses the body, so req.body is always undefined at this point.
+// Request body PII masking is handled in the ingest route handler (future Issue).
 export function reqSerializer(req: {
   method?: string;
   url?: string;
   headers?: Record<string, string | string[] | undefined>;
-  body?: unknown;
   remoteAddress?: string;
   remotePort?: number;
 }) {
@@ -52,18 +54,15 @@ export function reqSerializer(req: {
     method: req.method,
     url: req.url,
     headers,
-    body: maskObject(req.body),
     remoteAddress: req.remoteAddress,
     remotePort: req.remotePort,
   };
 }
 
 export async function loggerPlugin(fastify: FastifyInstance): Promise<void> {
-  // Apply body PII masking via onSend hook so body is available after parsing.
-  // The reqSerializer above covers headers in access logs; this hook masks
-  // any body content that pino may log at DEBUG level via addContentTypeParser.
+  // Log the response body at DEBUG level with PII masking applied.
+  // The reqSerializer above covers request headers; this hook covers response bodies.
   fastify.addHook('onSend', async (request, _reply, payload) => {
-    // Log the sanitised request body for traceability (debug level only)
     if (typeof payload === 'string') {
       try {
         const parsed: unknown = JSON.parse(payload);
