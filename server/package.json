@@ -17,7 +17,7 @@
     "migrate:up": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
     "test:contract": "jest --testPathPattern='contract\\.test' --ci --passWithNoTests",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\" \"__tests__/**/*.ts\""
   },
   "dependencies": {
     "@fastify/type-provider-typebox": "^5.1.0",
