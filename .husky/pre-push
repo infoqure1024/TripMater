@@ -1,0 +1,6 @@
+#!/bin/sh
+# Mobile app: type check
+npm run typecheck
+
+# Server: type check
+cd server && npm run typecheck

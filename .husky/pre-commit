@@ -1,0 +1,9 @@
+#!/bin/sh
+# Mobile app: lint staged files (src/, __tests__/)
+npx lint-staged
+
+# Server: lint staged files (server/src/, server/__tests__/)
+# Only runs when server files are staged
+if git diff --cached --name-only | grep -q '^server/'; then
+  cd server && npx lint-staged
+fi
