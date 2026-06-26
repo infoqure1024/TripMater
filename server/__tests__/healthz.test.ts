@@ -13,29 +13,32 @@ function makeApp() {
 }
 
 describe('GET /healthz', () => {
-  let app: FastifyInstance;
+  let app: FastifyInstance | undefined;
 
   beforeEach(() => {
     app = makeApp();
   });
 
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+      app = undefined;
+    }
   });
 
   it('returns HTTP 200', async () => {
-    const res = await app.inject({ method: 'GET', url: '/healthz' });
+    const res = await app!.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
   });
 
   it('body.status is "ok"', async () => {
-    const res = await app.inject({ method: 'GET', url: '/healthz' });
+    const res = await app!.inject({ method: 'GET', url: '/healthz' });
     const body = res.json<{ status: string; timestamp: string }>();
     expect(body.status).toBe('ok');
   });
 
   it('body.timestamp is a valid ISO 8601 string', async () => {
-    const res = await app.inject({ method: 'GET', url: '/healthz' });
+    const res = await app!.inject({ method: 'GET', url: '/healthz' });
     const body = res.json<{ status: string; timestamp: string }>();
     // new Date() on a valid ISO string gives a non-NaN time value.
     const parsed = new Date(body.timestamp);
@@ -45,7 +48,7 @@ describe('GET /healthz', () => {
   });
 
   it('Content-Type is application/json', async () => {
-    const res = await app.inject({ method: 'GET', url: '/healthz' });
+    const res = await app!.inject({ method: 'GET', url: '/healthz' });
     expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 });
