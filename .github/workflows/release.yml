@@ -1,16 +1,17 @@
-# CD: リリース配布（タグ / GitHub Release 起動）
-# v* タグ push、または GitHub Release published で起動し、Android のリリース成果物
-# （APK / AAB / mapping）をビルドして添付する。Issue #61。
+# CD: リリース配布（v* タグ起動）
+# v* タグ push で起動し、Android のリリース成果物（APK / AAB / mapping）をビルドして
+# GitHub Release に添付する。Issue #61。
 #
 # 秘密情報（署名鍵・Play 資格情報）はリポジトリに置かず、すべて GitHub Secrets から注入する。
 name: Release (CD)
 
 on:
+  # 起動は v* タグ push に一本化する（release: published と併用すると、同一リリースで
+  # ビルドが二重に走るため）。GitHub Release を作成すると対応する v* タグの push で
+  # これが起動し、下記 action-gh-release が（未作成なら）Release を作成して添付する。
   push:
     tags:
       - 'v*'
-  release:
-    types: [published]
 
 # Release Assets へ添付するため contents: write が必要。
 permissions:
@@ -20,6 +21,7 @@ jobs:
   android-release:
     name: Android release build & publish
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     # GitHub Environments の "production" を指定。
     # Settings → Environments → production に Required reviewers（手動承認）を設定すると、
     # このジョブは承認されるまで待機する。これが Play 提出前の人手ゲートになる。
@@ -125,8 +127,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      # v* タグ起動時のみ、成果物を GitHub Release Assets として添付する。
-      # release: published 起動時は Release が既に存在するので二重添付を避ける。
+      # v* タグ起動なので常に成立。Release が無ければ action-gh-release が作成し、
+      # 成果物を Release Assets として添付する（既存なら更新）。
       - name: Attach artifacts to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
