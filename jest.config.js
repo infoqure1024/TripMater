@@ -1,5 +1,9 @@
 module.exports = {
   preset: 'react-native',
+  // server/ has its own jest.config.js and package.json (fastify etc.).
+  // It is tested by server-ci.yml which installs server/node_modules separately.
+  // Exclude it here so the root Jest doesn't try to resolve server-only deps.
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/server/'],
   moduleNameMapper: {
     // react-native-background-actions ships ESM and touches NativeModules /
     // NativeEventEmitter at import time, neither of which works under the jest
