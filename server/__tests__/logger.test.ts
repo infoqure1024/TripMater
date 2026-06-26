@@ -109,7 +109,7 @@ describe('maskObject — response body PII masking', () => {
       expect(sample['lat']).toBe('[REDACTED]');
       expect(sample['lng']).toBe('[REDACTED]');
     }
-    expect(masked.samples[0]!['speedMps']).toBe(10);
+    expect(masked.samples[0]['speedMps']).toBe(10);
   });
 
   it('replaces tok_* token patterns in string values', () => {
