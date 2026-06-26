@@ -34,8 +34,8 @@ describe('GET /healthz', () => {
     // new Date() on a valid ISO string gives a non-NaN time value.
     const parsed = new Date(body.timestamp);
     expect(Number.isNaN(parsed.getTime())).toBe(false);
-    // Must round-trip: toISOString() canonical form ends with 'Z'.
-    expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    // toISOString() canonical form: YYYY-MM-DDTHH:mm:ss.mmmZ
+    expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
     await app.close();
   });
 

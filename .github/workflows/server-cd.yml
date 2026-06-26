@@ -103,8 +103,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: docker-build-push
-    # Only run on push to main (not on tag pushes).
-    if: github.ref == 'refs/heads/main'
+    # Run on push to main, or manual dispatch targeting staging.
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
     environment:
       name: staging
       url: ${{ vars.STAGING_DEPLOY_URL }}
@@ -181,8 +183,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: docker-build-push
-    # Only run on v* tag pushes.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Run on v* tag pushes, or manual dispatch targeting production.
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
     environment:
       name: production
       url: ${{ vars.PROD_DEPLOY_URL }}
