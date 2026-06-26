@@ -23,7 +23,7 @@ export default [
     },
     rules: {
       ...tsPlugin.configs['recommended'].rules,
-      ...tsPlugin.configs['recommended-requiring-type-checking'].rules,
+      ...tsPlugin.configs['recommended-type-checked'].rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-explicit-any': 'error',

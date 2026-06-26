@@ -7,7 +7,10 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const app = buildApp(config);
 
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     app.log.info({ signal }, 'Received shutdown signal, draining connections...');
 
     const forceExit = setTimeout(() => {

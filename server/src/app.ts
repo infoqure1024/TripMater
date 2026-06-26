@@ -1,7 +1,6 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { AppConfig } from './config';
-import { reqSerializer } from './plugins/logger';
-import { loggerPlugin } from './plugins/logger';
+import { reqSerializer, loggerPlugin } from './plugins/logger';
 import { healthzRoute } from './routes/healthz';
 
 export function buildApp(config: AppConfig): FastifyInstance {
