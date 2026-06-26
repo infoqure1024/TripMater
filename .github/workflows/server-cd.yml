@@ -1,0 +1,221 @@
+# Server CD: build → push image → deploy to staging (main) / production (v* tag).
+# Staging deploys automatically on push to main when server files change.
+# Production requires manual approval via GitHub Environment protection rules.
+# Issue #62. Deploy infrastructure (Dockerfile, Cloud Run config) is Issue #58.
+name: Server CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'server/**'
+
+# Serialise deploys per environment to avoid concurrent rollouts.
+concurrency:
+  group: server-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── Docker build + push to GHCR ──────────────────────────────────────────
+  docker-build-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
+      dockerfile-exists: ${{ steps.dockerfile-check.outputs.exists }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check if Dockerfile exists
+        id: dockerfile-check
+        run: |
+          if [ -f server/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notice — Dockerfile not yet present (Issue #58)
+        if: steps.dockerfile-check.outputs.exists == 'false'
+        run: |
+          echo "::warning file=server/Dockerfile::Dockerfile not found — skipping image build and push (see Issue #58). Deployment steps will be skipped."
+
+      - name: Log in to GitHub Container Registry
+        if: steps.dockerfile-check.outputs.exists == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (tags, labels)
+        if: steps.dockerfile-check.outputs.exists == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/server
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push image
+        if: steps.dockerfile-check.outputs.exists == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          file: server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to staging (main push) ────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: docker-build-push
+    # Only run on push to main (not on tag pushes).
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_DEPLOY_URL }}
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      ADMIN_API_KEY: ${{ secrets.STAGING_ADMIN_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run database migrations
+        run: npm run migrate:up
+
+      - name: Deploy to staging
+        # Placeholder: replace with the actual deploy command once Issue #58 lands.
+        # For Cloud Run: gcloud run deploy ... --image ghcr.io/...
+        # For Fly.io: flyctl deploy ...
+        run: |
+          echo "::warning::Deploy step is a placeholder — wire up the actual deploy command after Issue #58 (Dockerfile / infra) is completed."
+          echo "Image tag(s): ${{ needs.docker-build-push.outputs.image-tags }}"
+
+      - name: Health check gate (poll /healthz up to 20 times, 15s apart)
+        env:
+          DEPLOY_URL: ${{ vars.STAGING_DEPLOY_URL }}
+        run: |
+          echo "Polling ${DEPLOY_URL}/healthz ..."
+          for i in $(seq 1 20); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/healthz" || echo "000")
+            echo "Attempt ${i}/20 — HTTP ${STATUS}"
+            if [ "${STATUS}" = "200" ]; then
+              echo "Health check passed."
+              break
+            fi
+            if [ "${i}" = "20" ]; then
+              echo "::error::Health check failed after 20 attempts. Deployment may be unhealthy."
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Smoke check — metrics endpoint
+        env:
+          DEPLOY_URL: ${{ vars.STAGING_DEPLOY_URL }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/metrics" || echo "000")
+          echo "GET /metrics → HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ]; then
+            echo "::warning::Metrics endpoint returned HTTP ${STATUS}. Check Issue #57 (observability) if metrics are not yet wired up."
+          fi
+
+  # ── Deploy to production (v* tag) ────────────────────────────────────────
+  deploy-production:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: docker-build-push
+    # Only run on v* tag pushes.
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+      url: ${{ vars.PROD_DEPLOY_URL }}
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+      ADMIN_API_KEY: ${{ secrets.PROD_ADMIN_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run database migrations
+        run: npm run migrate:up
+
+      - name: Deploy to production
+        # Placeholder: replace with the actual deploy command once Issue #58 lands.
+        run: |
+          echo "::warning::Deploy step is a placeholder — wire up the actual deploy command after Issue #58 (Dockerfile / infra) is completed."
+          echo "Image tag(s): ${{ needs.docker-build-push.outputs.image-tags }}"
+
+      - name: Health check gate (poll /healthz up to 20 times, 15s apart)
+        env:
+          DEPLOY_URL: ${{ vars.PROD_DEPLOY_URL }}
+        run: |
+          echo "Polling ${DEPLOY_URL}/healthz ..."
+          for i in $(seq 1 20); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/healthz" || echo "000")
+            echo "Attempt ${i}/20 — HTTP ${STATUS}"
+            if [ "${STATUS}" = "200" ]; then
+              echo "Health check passed."
+              break
+            fi
+            if [ "${i}" = "20" ]; then
+              echo "::error::Health check failed after 20 attempts. Deployment may be unhealthy."
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Smoke check — metrics endpoint
+        env:
+          DEPLOY_URL: ${{ vars.PROD_DEPLOY_URL }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/metrics" || echo "000")
+          echo "GET /metrics → HTTP ${STATUS}"
+          if [ "${STATUS}" != "200" ]; then
+            echo "::warning::Metrics endpoint returned HTTP ${STATUS}. Check Issue #57 (observability) if metrics are not yet wired up."
+          fi
