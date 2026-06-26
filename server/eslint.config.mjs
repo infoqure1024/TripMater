@@ -62,8 +62,7 @@ export default [
     },
     rules: {
       ...sharedRules,
-      // Allow `any` in test files where type precision is less critical
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
 ];
