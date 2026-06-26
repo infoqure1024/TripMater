@@ -22,7 +22,9 @@ function optionalEnv(name: string, defaultValue: string): string {
 export function loadConfig(): AppConfig {
   const port = parseInt(optionalEnv('PORT', '3000'), 10);
   if (isNaN(port) || port < 1 || port > 65535) {
-    console.error(`[config] PORT must be a valid port number (1-65535), got: ${process.env['PORT']}`);
+    console.error(
+      `[config] PORT must be a valid port number (1-65535), got: ${process.env['PORT']}`
+    );
     process.exit(1);
   }
 

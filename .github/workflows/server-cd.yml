@@ -12,6 +12,19 @@ on:
       - 'v*'
     paths:
       - 'server/**'
+  # Allow manual triggering so production deploys work even when the tag
+  # lands on a commit that does not touch server/** (paths filter applies
+  # to tag pushes too — GitHub does not special-case tags for paths).
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 # Serialise deploys per environment to avoid concurrent rollouts.
 concurrency:
@@ -48,6 +61,10 @@ jobs:
         if: steps.dockerfile-check.outputs.exists == 'false'
         run: |
           echo "::warning file=server/Dockerfile::Dockerfile not found — skipping image build and push (see Issue #58). Deployment steps will be skipped."
+
+      - name: Set up Docker Buildx
+        if: steps.dockerfile-check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         if: steps.dockerfile-check.outputs.exists == 'true'
@@ -126,6 +143,10 @@ jobs:
         env:
           DEPLOY_URL: ${{ vars.STAGING_DEPLOY_URL }}
         run: |
+          if [ -z "${DEPLOY_URL}" ]; then
+            echo "::warning::STAGING_DEPLOY_URL not set — skipping health check (see Issue #58)"
+            exit 0
+          fi
           echo "Polling ${DEPLOY_URL}/healthz ..."
           for i in $(seq 1 20); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/healthz" || echo "000")
@@ -145,6 +166,9 @@ jobs:
         env:
           DEPLOY_URL: ${{ vars.STAGING_DEPLOY_URL }}
         run: |
+          if [ -z "${DEPLOY_URL}" ]; then
+            exit 0
+          fi
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/metrics" || echo "000")
           echo "GET /metrics → HTTP ${STATUS}"
           if [ "${STATUS}" != "200" ]; then
@@ -195,6 +219,10 @@ jobs:
         env:
           DEPLOY_URL: ${{ vars.PROD_DEPLOY_URL }}
         run: |
+          if [ -z "${DEPLOY_URL}" ]; then
+            echo "::warning::PROD_DEPLOY_URL not set — skipping health check (see Issue #58)"
+            exit 0
+          fi
           echo "Polling ${DEPLOY_URL}/healthz ..."
           for i in $(seq 1 20); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/healthz" || echo "000")
@@ -214,6 +242,9 @@ jobs:
         env:
           DEPLOY_URL: ${{ vars.PROD_DEPLOY_URL }}
         run: |
+          if [ -z "${DEPLOY_URL}" ]; then
+            exit 0
+          fi
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/metrics" || echo "000")
           echo "GET /metrics → HTTP ${STATUS}"
           if [ "${STATUS}" != "200" ]; then

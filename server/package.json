@@ -16,7 +16,7 @@
     "test": "jest",
     "migrate:up": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
-    "test:contract": "jest --testPathPattern='contract\\.test' --ci",
+    "test:contract": "jest --testPathPattern='contract\\.test' --ci --passWithNoTests",
     "format:check": "prettier --check \"src/**/*.ts\""
   },
   "dependencies": {

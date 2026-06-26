@@ -9,12 +9,14 @@ on:
     paths:
       - 'server/**'
       - 'docs/server/openapi.yaml'
+      - '.github/workflows/server-ci.yml'
   push:
     branches:
       - main
     paths:
       - 'server/**'
       - 'docs/server/openapi.yaml'
+      - '.github/workflows/server-ci.yml'
 
 # Cancel stale runs on the same ref to avoid wasting runner minutes.
 concurrency:
@@ -242,6 +244,10 @@ jobs:
         if: steps.dockerfile-check.outputs.exists == 'false'
         run: |
           echo "::notice file=server/Dockerfile::Dockerfile not found — skipping Docker build (see Issue #58). Add server/Dockerfile to enable this step."
+
+      - name: Set up Docker Buildx
+        if: steps.dockerfile-check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
         if: steps.dockerfile-check.outputs.exists == 'true'
