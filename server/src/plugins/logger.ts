@@ -6,7 +6,8 @@ function maskTokens(value: string): string {
   return value.replace(TOKEN_PATTERN, '[REDACTED]');
 }
 
-function maskObject(obj: unknown): unknown {
+// Exported for unit testing (log hygiene gate — §7).
+export function maskObject(obj: unknown): unknown {
   if (typeof obj === 'string') {
     return maskTokens(obj);
   }
