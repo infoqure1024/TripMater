@@ -83,6 +83,8 @@ export async function saveUploadConfig(
   config: Partial<UploadConfigPersisted>,
   token?: string,
 ): Promise<void> {
+  // token は Keychain 側で別途保存するため、設定ファイルからは除外する（意図的な discard）。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { token: _ignored, ...nonSensitive } = config as UploadConfigPersisted & { token?: string };
   const existing = await loadConfigFile();
   await saveConfigFile({ ...existing, ...nonSensitive });

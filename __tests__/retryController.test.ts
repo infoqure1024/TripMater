@@ -5,7 +5,6 @@
 import {
   BackoffConfig,
   calculateBackoffMs,
-  DEFAULT_BACKOFF_CONFIG,
   RetryController,
 } from '../src/core/retryController';
 import { UploadEvent } from '../src/core/batchUploader';

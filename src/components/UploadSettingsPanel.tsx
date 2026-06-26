@@ -55,7 +55,7 @@ export function UploadSettingsPanel({ onConfigSaved }: Props): React.JSX.Element
     });
   }, []);
 
-  const validate = (): string | null => {
+  const validate = useCallback((): string | null => {
     try {
       const u = new URL(form.baseUrl);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') {
@@ -70,7 +70,7 @@ export function UploadSettingsPanel({ onConfigSaved }: Props): React.JSX.Element
     const fi = Number(form.flushIntervalMs);
     if (!Number.isInteger(fi) || fi < 1000) { return '送信間隔は 1000ms 以上にしてください'; }
     return null;
-  };
+  }, [form]);
 
   const handleSave = useCallback(async () => {
     const err = validate();
@@ -93,7 +93,7 @@ export function UploadSettingsPanel({ onConfigSaved }: Props): React.JSX.Element
     } finally {
       setSaving(false);
     }
-  }, [form, onConfigSaved]);
+  }, [form, onConfigSaved, validate]);
 
   const handleTest = useCallback(async () => {
     const err = validate();
@@ -119,7 +119,7 @@ export function UploadSettingsPanel({ onConfigSaved }: Props): React.JSX.Element
     } finally {
       setTesting(false);
     }
-  }, [form]);
+  }, [form, validate]);
 
   return (
     <View style={styles.container}>
