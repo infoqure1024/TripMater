@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST $SLACK_WEBHOOK_URL -H 'Content-type: application/json' -d '{\"text\":\"✅ Claude Code がタスクを完了しました\"}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

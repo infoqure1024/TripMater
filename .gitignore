@@ -69,6 +69,7 @@ yarn-error.log
 !.claude/agents/**
 !.claude/commands
 !.claude/commands/**
+!.claude/settings.json
 
 # testing
 /coverage
