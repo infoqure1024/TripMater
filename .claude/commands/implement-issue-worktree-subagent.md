@@ -1,17 +1,17 @@
-Issue#$ARGUMENTS を Git Worktreeを使って実装してください。
+Issue#$ARGUMENTS を Git Worktree を使って実装してください。
 
 ## 実装手順
 
 ### 1. 前処理（Worktree 作成前）
 
-- 現在のブランチがmain以外の場合は、mainブランチをチェックアウトしてください。
-- `git checkout main && git pull origin main` で最新のmainブランチを取得してください。
+- 現在のブランチが main 以外の場合は、main ブランチをチェックアウトしてください。
+- `git checkout main && git pull origin main` で最新の main ブランチを取得してください。
 - 既存のブランチ `feature/issue-$ARGUMENTS` があれば削除してください。
 
-### 2. Worktree作成
+### 2. Worktree 作成
 
-- `git worktree add issue-$ARGUMENTS -b feature/issue-$ARGUMENTS`コマンドでWorktreeを作成してください。
-- Worktreeは`issue-$ARGUMENTS`という命名規則に従ったサブフォルダを作成します。
+- `git worktree add issue-$ARGUMENTS -b feature/issue-$ARGUMENTS`コマンドで Worktree を作成してください。
+- Worktree は`issue-$ARGUMENTS`という命名規則に従ったサブフォルダを作成します。
 
 ### 3. Worktree 環境の設定
 
@@ -21,7 +21,7 @@ Issue#$ARGUMENTS を Git Worktreeを使って実装してください。
 
 ### 4. 実装
 
-- Issue内容を確認し、最適なサブエージェントを選択して実装してください。
+- Issue 内容を確認し、最適なサブエージェントを選択して実装してください。
 - 実装完了後、必ずテストを実行してください。
 - `npm run lint`と`npm run typecheck`でコード品質を確認してください。
 
@@ -33,6 +33,6 @@ Issue#$ARGUMENTS を Git Worktreeを使って実装してください。
 
 ### 6. 後処理(クリーンアップ)
 
-- プルリクエスト作成後、メインディレクトリ(/daily-sales-report)に戻ってください。
+- プルリクエスト作成後、メインディレクトリに戻ってください。
 - `git worktree remove issue-$ARGUMENTS` で Worktree を削除してください。
 - 作業が完了したことを報告してください。
