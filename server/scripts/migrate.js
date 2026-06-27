@@ -33,8 +33,10 @@ if (!databaseUrl) {
 }
 
 // node-pg-migrate runner (CJS default export interop)
+// node-pg-migrate v8 exposes the runner as the named export `runner`
+// (no `default` export). Keep `default` as a fallback for older versions.
 const nodePgMigrate = require('node-pg-migrate');
-const migrate = nodePgMigrate.default ?? nodePgMigrate;
+const migrate = nodePgMigrate.runner ?? nodePgMigrate.default ?? nodePgMigrate;
 
 migrate({
   databaseUrl,

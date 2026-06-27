@@ -86,7 +86,10 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        # PostGIS-enabled image: migration 002 runs `CREATE EXTENSION postgis`,
+        # which requires the extension to be installed on the server. This image
+        # is a drop-in superset of postgres:16 (same env vars / pg_isready).
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: tripmater
           POSTGRES_PASSWORD: tripmater
@@ -131,7 +134,10 @@ jobs:
     needs: server-migrate
     services:
       postgres:
-        image: postgres:16
+        # PostGIS-enabled image: migration 002 runs `CREATE EXTENSION postgis`,
+        # which requires the extension to be installed on the server. This image
+        # is a drop-in superset of postgres:16 (same env vars / pg_isready).
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: tripmater
           POSTGRES_PASSWORD: tripmater
@@ -185,7 +191,10 @@ jobs:
     needs: server-migrate
     services:
       postgres:
-        image: postgres:16
+        # PostGIS-enabled image: migration 002 runs `CREATE EXTENSION postgis`,
+        # which requires the extension to be installed on the server. This image
+        # is a drop-in superset of postgres:16 (same env vars / pg_isready).
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: tripmater
           POSTGRES_PASSWORD: tripmater
