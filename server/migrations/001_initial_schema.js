@@ -21,7 +21,8 @@ exports.up = (pgm) => {
     metadata: {
       type: 'jsonb',
       notNull: true,
-      default: "'{}'",
+      // 仕様書 §6 の DEFAULT '{}'::jsonb に合わせ、明示的に jsonb へキャストする
+      default: pgm.func("'{}'::jsonb"),
     },
   });
 
@@ -61,6 +62,8 @@ exports.up = (pgm) => {
       type: 'text',
       notNull: true,
       references: '"devices"',
+      // 仕様書 §6 に合わせ ON DELETE は未指定（NO ACTION）。
+      // デバイス削除時は先に location_samples を削除する必要がある。
     },
     session_id: { type: 'text' },
     // recorded_at = to_timestamp(timestamp / 1000.0) — UTC
