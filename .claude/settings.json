@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "curl -s -X POST $SLACK_WEBHOOK_URL -H 'Content-type: application/json' -d '{\"text\":\"✅ Claude Code がタスクを完了しました\"}' > /dev/null 2>&1 || true"
+          },
+          {
+            "type": "command",
+            "command": "curl -s -X POST https://ntfy.sh/tripmater-088073d602a9fc88 -d '✅ Claude Code がタスクを完了しました' > /dev/null 2>&1 || true"
           }
         ]
       }
