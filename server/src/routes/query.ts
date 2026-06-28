@@ -148,7 +148,9 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
         );
 
         if (result.rows.length === 0) {
-          return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
+          return reply
+            .code(404)
+            .send({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
         }
 
         const row = result.rows[0];

@@ -187,9 +187,9 @@ describe('GET /api/v1/devices/:deviceId/sessions', () => {
   it('returns 200 with sessions for device token accessing own deviceId', async () => {
     app = makeApp(
       makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },  // auth token lookup
-        { rows: [sessionRow()] },               // sessions query
-        { rows: [{ total: '1' }] },             // count query (Promise.all)
+        { rows: [validTokenRow(DEVICE_ID)] }, // auth token lookup
+        { rows: [sessionRow()] }, // sessions query
+        { rows: [{ total: '1' }] }, // count query (Promise.all)
       ])
     );
     const res = await app.inject({
@@ -227,11 +227,7 @@ describe('GET /api/v1/devices/:deviceId/sessions', () => {
 
   it('returns 200 with empty sessions list when device has no sessions', async () => {
     app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        { rows: [] },
-        { rows: [{ total: '0' }] },
-      ])
+      makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [] }, { rows: [{ total: '0' }] }])
     );
     const res = await app.inject({
       method: 'GET',
@@ -265,12 +261,7 @@ describe('GET /api/v1/devices/:deviceId/sessions', () => {
   });
 
   it('returns 503 on DB error', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        new Error('DB down'),
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, new Error('DB down')]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/devices/${DEVICE_ID}/sessions`,
@@ -299,12 +290,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
 
   it('returns 404 when device token accesses another device session (IDOR)', async () => {
     // token belongs to DEVICE_ID, but session belongs to OTHER_DEVICE_ID → 0 rows → 404
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        { rows: [] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/summary`,
@@ -314,12 +300,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
   });
 
   it('returns 404 when session does not exist', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        { rows: [] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/nonexistent/summary`,
@@ -330,12 +311,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
   });
 
   it('returns 200 with summary for device token accessing own session', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        { rows: [sessionRow()] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [sessionRow()] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/summary`,
@@ -352,11 +328,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
   });
 
   it('returns 200 with summary for admin (any session)', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [sessionRow({ device_id: OTHER_DEVICE_ID })] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [sessionRow({ device_id: OTHER_DEVICE_ID })] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/summary`,
@@ -385,12 +357,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
   });
 
   it('returns 503 on DB error', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        new Error('DB down'),
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, new Error('DB down')]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/summary`,
@@ -419,12 +386,7 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
 
   it('returns 404 when device token accesses another device session (IDOR)', async () => {
     // ownership check returns 0 rows (session belongs to OTHER_DEVICE_ID)
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        { rows: [] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/samples`,
@@ -436,10 +398,10 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
 
   it('returns 200 with samples for device token accessing own session', async () => {
     const pool = makePool([
-      { rows: [validTokenRow(DEVICE_ID)] },      // auth
-      { rows: [{ device_id: DEVICE_ID }] },      // ownership check
-      { rows: [sampleRow()] },                   // samples query (Promise.all)
-      { rows: [{ total: '1' }] },                // count query (Promise.all)
+      { rows: [validTokenRow(DEVICE_ID)] }, // auth
+      { rows: [{ device_id: DEVICE_ID }] }, // ownership check
+      { rows: [sampleRow()] }, // samples query (Promise.all)
+      { rows: [{ total: '1' }] }, // count query (Promise.all)
     ]);
     app = makeApp(pool);
     const res = await app.inject({
@@ -487,12 +449,7 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
   });
 
   it('returns 200 with empty samples when session exists but is empty (admin)', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [] },
-        { rows: [{ total: '0' }] },
-      ])
-    );
+    app = makeApp(makePool([{ rows: [] }, { rows: [{ total: '0' }] }]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/samples`,
@@ -525,12 +482,7 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
   });
 
   it('returns 503 on DB error during ownership check', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },
-        new Error('DB down'),
-      ])
-    );
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, new Error('DB down')]));
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/samples`,
