@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       image-tags: ${{ steps.meta.outputs.tags }}
-      image-tag: ghcr.io/${{ github.repository }}/server:sha-${{ github.sha }}
+      image-tag: ${{ steps.meta.outputs.tags }}
       dockerfile-exists: ${{ steps.dockerfile-check.outputs.exists }}
     steps:
       - name: Checkout

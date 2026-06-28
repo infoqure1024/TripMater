@@ -23,10 +23,11 @@ FROM node:20-alpine AS production
 RUN apk add --no-cache dumb-init
 
 WORKDIR /app
+ENV NODE_ENV=production
 
 # Install production deps only (no devDependencies)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Compiled application
 COPY --from=builder /app/dist ./dist
