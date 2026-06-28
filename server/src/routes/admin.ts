@@ -23,6 +23,10 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
 }
 
+function isForeignKeyViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23503';
+}
+
 export async function adminRoute(fastify: FastifyInstance): Promise<void> {
   fastify.addHook('preHandler', (req, reply) => fastify.authenticateAdmin(req, reply));
 
@@ -30,12 +34,13 @@ export async function adminRoute(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: unknown }>('/api/v1/admin/devices', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
 
-    const deviceId = body['deviceId'];
-    if (typeof deviceId !== 'string' || deviceId.trim() === '') {
+    const rawDeviceId = body['deviceId'];
+    if (typeof rawDeviceId !== 'string' || rawDeviceId.trim() === '') {
       return reply
         .code(400)
         .send({ error: { code: 'BAD_REQUEST', message: 'deviceId is required' } });
     }
+    const deviceId = rawDeviceId.trim();
 
     const name = typeof body['name'] === 'string' ? body['name'] : null;
     const metadata =
@@ -98,6 +103,12 @@ export async function adminRoute(fastify: FastifyInstance): Promise<void> {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const expiresAt = typeof body['expiresAt'] === 'string' ? body['expiresAt'] : null;
 
+      if (expiresAt !== null && isNaN(Date.parse(expiresAt))) {
+        return reply
+          .code(400)
+          .send({ error: { code: 'BAD_REQUEST', message: 'invalid expiresAt format' } });
+      }
+
       try {
         const deviceResult = await fastify.db.query('SELECT id FROM devices WHERE id = $1', [
           deviceId,
@@ -117,6 +128,12 @@ export async function adminRoute(fastify: FastifyInstance): Promise<void> {
 
         return reply.code(201).send({ deviceId, tokenId, token: plaintext, expiresAt });
       } catch (err) {
+        // Race condition: device deleted between SELECT and INSERT → FK violation → 404
+        if (isForeignKeyViolation(err)) {
+          return reply
+            .code(404)
+            .send({ error: { code: 'NOT_FOUND', message: 'Device not found' } });
+        }
         req.log.error({ err }, 'DB error in POST /admin/devices/:deviceId/tokens');
         return reply.code(503).send({
           error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' },

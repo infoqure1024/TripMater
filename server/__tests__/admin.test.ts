@@ -169,6 +169,18 @@ describe('POST /api/v1/admin/devices', () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe('CONFLICT');
   });
 
+  it('trims leading/trailing whitespace from deviceId before storing', async () => {
+    app = makeApp(makePool({ txSequence: [{ rows: [], rowCount: 1 }] }));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/devices',
+      headers: adminHeaders(),
+      payload: { deviceId: '  device-1  ' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<{ deviceId: string }>().deviceId).toBe('device-1');
+  });
+
   it('returns 503 on unexpected DB error', async () => {
     app = makeApp(makePool({ txSequence: [new Error('connection reset')] }));
     const res = await app.inject({
@@ -248,6 +260,38 @@ describe('POST /api/v1/admin/devices/:deviceId/tokens', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json<{ expiresAt: string }>().expiresAt).toBe('2027-01-01T00:00:00Z');
+  });
+
+  it('returns 400 when expiresAt is not a valid date string', async () => {
+    app = makeApp(makePool());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/devices/device-1/tokens',
+      headers: adminHeaders(),
+      payload: { expiresAt: 'not-a-date' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('BAD_REQUEST');
+  });
+
+  it('returns 404 when device is deleted between SELECT and INSERT (FK violation)', async () => {
+    const fkErr = Object.assign(new Error('foreign key violation'), { code: '23503' });
+    app = makeApp(
+      makePool({
+        querySequence: [
+          { rows: [{ id: 'device-1' }] }, // device check passes
+          fkErr, // INSERT api_tokens → FK violation
+        ],
+      })
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/devices/device-1/tokens',
+      headers: adminHeaders(),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
   });
 
   it('returns 503 on DB error', async () => {
