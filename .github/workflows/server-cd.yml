@@ -43,6 +43,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       image-tags: ${{ steps.meta.outputs.tags }}
+      image-tag: ${{ steps.meta.outputs.tags }}
       dockerfile-exists: ${{ steps.dockerfile-check.outputs.exists }}
     steps:
       - name: Checkout
@@ -104,9 +105,11 @@ jobs:
     timeout-minutes: 15
     needs: docker-build-push
     # Run on push to main, or manual dispatch targeting staging.
+    # Skip entirely when Dockerfile is not present (Issue #58 not yet merged).
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+      needs.docker-build-push.outputs.dockerfile-exists == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging'))
     environment:
       name: staging
       url: ${{ vars.STAGING_DEPLOY_URL }}
@@ -133,13 +136,28 @@ jobs:
       - name: Run database migrations
         run: npm run migrate:up
 
-      - name: Deploy to staging
-        # Placeholder: replace with the actual deploy command once Issue #58 lands.
-        # For Cloud Run: gcloud run deploy ... --image ghcr.io/...
-        # For Fly.io: flyctl deploy ...
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set Fly.io secrets (staging)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          echo "::warning::Deploy step is a placeholder — wire up the actual deploy command after Issue #58 (Dockerfile / infra) is completed."
-          echo "Image tag(s): ${{ needs.docker-build-push.outputs.image-tags }}"
+          flyctl secrets set \
+            DATABASE_URL="${DATABASE_URL}" \
+            ADMIN_API_KEY="${ADMIN_API_KEY}" \
+            --app tripmater-server-staging \
+            --stage
+
+      - name: Deploy to staging (Fly.io)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app tripmater-server-staging \
+            --config fly.toml \
+            --remote-only \
+            --wait-timeout 120
 
       - name: Health check gate (poll /healthz up to 20 times, 15s apart)
         env:
@@ -184,9 +202,11 @@ jobs:
     timeout-minutes: 15
     needs: docker-build-push
     # Run on v* tag pushes, or manual dispatch targeting production.
+    # Skip entirely when Dockerfile is not present (Issue #58 not yet merged).
     if: |
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+      needs.docker-build-push.outputs.dockerfile-exists == 'true' &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production'))
     environment:
       name: production
       url: ${{ vars.PROD_DEPLOY_URL }}
@@ -213,11 +233,28 @@ jobs:
       - name: Run database migrations
         run: npm run migrate:up
 
-      - name: Deploy to production
-        # Placeholder: replace with the actual deploy command once Issue #58 lands.
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set Fly.io secrets (production)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          echo "::warning::Deploy step is a placeholder — wire up the actual deploy command after Issue #58 (Dockerfile / infra) is completed."
-          echo "Image tag(s): ${{ needs.docker-build-push.outputs.image-tags }}"
+          flyctl secrets set \
+            DATABASE_URL="${DATABASE_URL}" \
+            ADMIN_API_KEY="${ADMIN_API_KEY}" \
+            --app tripmater-server \
+            --stage
+
+      - name: Deploy to production (Fly.io)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app tripmater-server \
+            --config fly.toml \
+            --remote-only \
+            --wait-timeout 120
 
       - name: Health check gate (poll /healthz up to 20 times, 15s apart)
         env:

@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: tripmater
+      POSTGRES_PASSWORD: tripmater
+      POSTGRES_DB: tripmater
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tripmater -d tripmater"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://tripmater:tripmater@db:5432/tripmater
+      ADMIN_API_KEY: dev-admin-key
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    # Migrations run before starting; override for production-like testing.
+    command: sh -c "node scripts/migrate.js up && exec node dist/server.js"
+
+volumes:
+  pgdata:
