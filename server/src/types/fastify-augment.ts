@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { FastifyReply } from 'fastify';
+import type { MetricsStore } from '../core/metrics';
+import type { PoisonPillDetector } from '../core/poisonPill';
 
 // Module augmentation: extend Fastify's built-in interfaces with project-specific
 // decorators so they are visible everywhere without casting.
@@ -9,6 +11,8 @@ declare module 'fastify' {
     authenticateDevice(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     authenticateAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     authenticateQuery(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    metrics: MetricsStore;
+    poisonPillDetector: PoisonPillDetector;
   }
   interface FastifyRequest {
     deviceId: string;

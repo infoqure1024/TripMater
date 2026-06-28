@@ -11,6 +11,8 @@ export function registerOverloadGuard(fastify: FastifyInstance, maxInflight: num
   const inflightIds = new Set<string>();
 
   fastify.addHook('onRequest', async (req, reply) => {
+    // Exempt the metrics endpoint so monitoring remains reachable under load.
+    if (req.url === '/metrics') return;
     if (inflightIds.size >= maxInflight) {
       req.log.warn(
         { inflight: inflightIds.size, maxInflight },
