@@ -133,18 +133,24 @@ async function ingest(
     },
     payload: { schemaVersion: 1, samples },
   });
+  if (res.statusCode !== 200) {
+    throw new Error(`ingest returned ${res.statusCode}: ${res.body}`);
+  }
   return res.json<IngestResponse>();
 }
 
 // ── Integration test suite ────────────────────────────────────────────────────
 
 describeDb('統合テスト (real PostgreSQL)', () => {
-  let pool: Pool;
+  // H-1 fix: separate pools — appPool is owned by buildApp (ended via onClose),
+  // cleanupPool is owned by the test suite (ended explicitly in afterAll).
+  let cleanupPool: Pool;
   let app: FastifyInstance;
   const createdDeviceIds: string[] = [];
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: INTEGRATION_DB_URL });
+    cleanupPool = new Pool({ connectionString: INTEGRATION_DB_URL });
+    const appPool = new Pool({ connectionString: INTEGRATION_DB_URL });
     app = buildApp(
       {
         port: 0,
@@ -155,21 +161,20 @@ describeDb('統合テスト (real PostgreSQL)', () => {
         requestTimeoutMs: 29_000,
         maxInflightRequests: 200,
       },
-      { pool }
+      { pool: appPool }
     );
-    // Ensure Fastify is ready before tests run
     await app.ready();
   });
 
   afterAll(async () => {
-    await app.close();
-    // pool.end() is called by app.close() via the onClose hook in buildApp
+    await app.close(); // ends appPool via the onClose hook in buildApp
+    await cleanupPool.end();
   });
 
   afterEach(async () => {
     // Clean up all devices created during the test (cascades to api_tokens + location_samples)
     if (createdDeviceIds.length > 0) {
-      await pool.query(`DELETE FROM devices WHERE id = ANY($1::text[])`, [createdDeviceIds]);
+      await cleanupPool.query(`DELETE FROM devices WHERE id = ANY($1::text[])`, [createdDeviceIds]);
       createdDeviceIds.length = 0;
     }
   });
@@ -195,6 +200,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       expect(first.inserted).toBe(3);
       expect(first.duplicates).toBe(0);
       expect(first.dropped).toBe(0);
+      expect(first.deviceMismatch).toBe(0);
 
       // Act — second POST with identical samples
       const second = await ingest(app, token, samples);
@@ -204,6 +210,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       expect(second.inserted).toBe(0);
       expect(second.duplicates).toBe(3);
       expect(second.dropped).toBe(0);
+      expect(second.deviceMismatch).toBe(0); // M-4: assert no spurious mismatch
     });
 
     it('不変条件: received = inserted + duplicates + dropped (冪等性ケース)', async () => {
@@ -235,10 +242,11 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       const step1 = await ingest(app, token, [validSample]);
       expect(step1.inserted).toBe(1);
 
-      // Step 2: send 1 valid new sample + 1 invalid sample (missing required field) + 1 duplicate
+      // Step 2: send 1 valid new sample + 1 invalid sample (has id but timestamp missing → dropped)
+      // + 1 duplicate. H-3 fix: provide id so drop reason is timestamp, not id.
       const invalidSample = {
-        // missing timestamp → dropped
         id: crypto.randomUUID(),
+        // timestamp intentionally omitted → validateSample returns null
         lat: 35.6895,
         lng: 139.6917,
         speedMps: 13.89,
@@ -255,7 +263,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       expect(step2.received).toBe(3);
       expect(step2.inserted).toBe(1); // newValidSample
       expect(step2.duplicates).toBe(1); // validSample from step 1
-      expect(step2.dropped).toBe(1); // invalidSample
+      expect(step2.dropped).toBe(1); // invalidSample (dropped because timestamp is missing)
       expect(step2.received).toBe(step2.inserted + step2.duplicates + step2.dropped);
     });
   });
@@ -300,11 +308,13 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       const tokenHash = crypto.createHash('sha256').update(plaintext, 'utf8').digest();
       const prefix = `tok_${plaintext.slice(4, 8)}`;
 
-      await pool.query(
+      // H-2 fix: assert the INSERT succeeded so the test doesn't vacuously pass
+      const insertResult = await cleanupPool.query(
         `INSERT INTO api_tokens (id, device_id, token_hash, prefix, expires_at, created_at)
          VALUES ($1, $2, $3, $4, NOW() - INTERVAL '1 hour', NOW())`,
         [tokenId, deviceId, tokenHash, prefix]
       );
+      expect(insertResult.rowCount).toBe(1);
 
       // Act
       const res = await app.inject({
@@ -328,7 +338,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
 
       // Disable the device directly in DB
-      await pool.query(`UPDATE devices SET disabled_at = NOW() WHERE id = $1`, [deviceId]);
+      await cleanupPool.query(`UPDATE devices SET disabled_at = NOW() WHERE id = $1`, [deviceId]);
 
       // Act
       const res = await app.inject({
@@ -361,7 +371,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       expect(result.inserted).toBeGreaterThan(0);
 
       // Verify: stored sample has device_id = real device's ID, not the spoofed one
-      const dbRows = await pool.query<{ device_id: string }>(
+      const dbRows = await cleanupPool.query<{ device_id: string }>(
         `SELECT device_id FROM location_samples WHERE id = $1`,
         [sample.id]
       );
@@ -394,6 +404,27 @@ describeDb('統合テスト (real PostgreSQL)', () => {
 
       // Assert
       expect(res.statusCode).toBe(404);
+    });
+
+    // M-5: admin can access any device's sessions (positive path)
+    it('admin キーはどのデバイスのセッション一覧も取得できる', async () => {
+      // Arrange
+      const deviceAId = await makeDevice();
+      const { plaintext: tokenA } = await createToken(app, ADMIN_KEY, deviceAId);
+      const sessionId = crypto.randomUUID();
+      await ingest(app, tokenA, [makeSample({ sessionId })]);
+
+      // Act: admin accesses device A's sessions
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/devices/${deviceAId}/sessions`,
+        headers: { 'x-admin-key': ADMIN_KEY },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const body = res.json<SessionsListResponse>();
+      expect(body.sessions.length).toBeGreaterThan(0);
     });
 
     it('デバイス B のトークンでデバイス A のセッションサマリーを取得すると 404', async () => {
@@ -440,10 +471,19 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       const sessionId = crypto.randomUUID();
       await ingest(app, tokenA, [makeSample({ sessionId })]);
 
+      // M-2 fix: query DB to get the stored sessionId (consistent with summary test)
+      const sessionsRes = await app.inject({
+        method: 'GET',
+        url: `/api/v1/devices/${deviceAId}/sessions`,
+        headers: { 'x-admin-key': ADMIN_KEY },
+      });
+      expect(sessionsRes.statusCode).toBe(200);
+      const storedSessionId = sessionsRes.json<SessionsListResponse>().sessions[0]?.sessionId ?? '';
+
       // Act: device B tries to access device A's session samples
       const samplesRes = await app.inject({
         method: 'GET',
-        url: `/api/v1/sessions/${sessionId}/samples`,
+        url: `/api/v1/sessions/${storedSessionId}/samples`,
         headers: { authorization: `Bearer ${tokenB}` },
       });
 
@@ -456,7 +496,8 @@ describeDb('統合テスト (real PostgreSQL)', () => {
 
   describe('H. バックプレッシャー: maxInflightRequests=0 → 503 + Retry-After', () => {
     it('maxInflightRequests=0 のアプリへの POST /locations は 503 を返し Retry-After ヘッダーを持つ', async () => {
-      // Arrange: build a separate app instance with maxInflightRequests=0
+      // M-1 fix: overload guard fires in onRequest before auth, so no real token needed.
+      // Build a separate app instance with maxInflightRequests=0.
       const limitedPool = new Pool({ connectionString: INTEGRATION_DB_URL });
       const limitedApp = buildApp(
         {
@@ -474,16 +515,12 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       try {
         await limitedApp.ready();
 
-        // Create a device in the shared pool so auth lookup works
-        const deviceId = await makeDevice();
-        const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
-
-        // Act
+        // Act — any token value triggers the 503 before auth runs
         const res = await limitedApp.inject({
           method: 'POST',
           url: '/api/v1/locations',
           headers: {
-            authorization: `Bearer ${token}`,
+            authorization: 'Bearer irrelevant',
             'content-type': 'application/json',
           },
           payload: { schemaVersion: 1, samples: [makeSample()] },
@@ -493,7 +530,7 @@ describeDb('統合テスト (real PostgreSQL)', () => {
         expect(res.statusCode).toBe(503);
         expect(res.headers['retry-after']).toBeDefined();
       } finally {
-        await limitedApp.close();
+        await limitedApp.close(); // ends limitedPool via onClose
       }
     });
   });
