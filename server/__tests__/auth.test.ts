@@ -43,6 +43,7 @@ function makeApp(pool: Pool): FastifyInstance {
       databaseUrl: 'postgresql://localhost/test',
       adminApiKey: 'secret-admin-key',
       logLevel: 'silent',
+      maxInflightRequests: 200,
     },
     { pool }
   );
