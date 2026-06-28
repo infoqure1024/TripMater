@@ -38,7 +38,9 @@ export function makeDevicePreHandler(
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const authHeader = req.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return reply.code(401).send({ error: 'Missing or malformed Authorization header' });
+      return reply.code(401).send({
+        error: { code: 'UNAUTHORIZED', message: 'Missing or malformed Authorization header' },
+      });
     }
 
     const rawToken = authHeader.slice('Bearer '.length);
@@ -60,24 +62,26 @@ export function makeDevicePreHandler(
       );
 
       if (result.rows.length === 0) {
-        return reply.code(401).send({ error: 'Invalid token' });
+        return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Invalid token' } });
       }
       row = result.rows[0]!;
     } catch (err) {
       req.log.error({ err }, 'DB error during token lookup');
-      return reply.code(503).send({ error: 'Service temporarily unavailable' });
+      return reply.code(503).send({
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' },
+      });
     }
 
     if (row.revoked_at !== null) {
-      return reply.code(401).send({ error: 'Token revoked' });
+      return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Token revoked' } });
     }
 
     if (row.expires_at !== null && row.expires_at <= new Date()) {
-      return reply.code(401).send({ error: 'Token expired' });
+      return reply.code(401).send({ error: { code: 'UNAUTHORIZED', message: 'Token expired' } });
     }
 
     if (row.disabled_at !== null) {
-      return reply.code(403).send({ error: 'Device disabled' });
+      return reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Device disabled' } });
     }
 
     req.log.debug({ tokenId: row.token_id }, 'token validated');
@@ -95,7 +99,9 @@ export function makeAdminPreHandler(
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const key = req.headers['x-admin-key'];
     if (!key || key !== adminApiKey) {
-      return reply.code(401).send({ error: 'Invalid or missing X-Admin-Key' });
+      return reply
+        .code(401)
+        .send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or missing X-Admin-Key' } });
     }
   };
 }

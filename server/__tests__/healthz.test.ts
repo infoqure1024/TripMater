@@ -9,6 +9,8 @@ function makeApp() {
     databaseUrl: process.env['DATABASE_URL'] ?? 'postgresql://localhost/test',
     adminApiKey: 'test-key',
     logLevel: 'silent',
+    maxInflightRequests: 200,
+    requestTimeoutMs: 29_000,
   });
 }
 

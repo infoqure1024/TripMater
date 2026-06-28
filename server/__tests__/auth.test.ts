@@ -43,6 +43,8 @@ function makeApp(pool: Pool): FastifyInstance {
       databaseUrl: 'postgresql://localhost/test',
       adminApiKey: 'secret-admin-key',
       logLevel: 'silent',
+      maxInflightRequests: 200,
+      requestTimeoutMs: 29_000,
     },
     { pool }
   );
@@ -172,6 +174,22 @@ describe('authenticateDevice', () => {
       headers: { authorization: 'Bearer some-token' },
     });
     expect(res.statusCode).toBe(503);
+  });
+
+  // ── 503 includes Retry-After via global onSend hook (§1.3) ───────────────
+
+  it('returns Retry-After header with 503 when DB query throws', async () => {
+    app = makeApp(makeErrorPool());
+    await registerRoutes(app);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/secure',
+      headers: { authorization: 'Bearer some-token' },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBeDefined();
+    const body = res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('SERVICE_UNAVAILABLE');
   });
 });
 
