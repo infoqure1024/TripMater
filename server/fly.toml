@@ -1,0 +1,43 @@
+# Fly.io deployment configuration for tripmater-server
+# Region: Tokyo (nrt) — closest to target users
+#
+# Secrets managed via Fly.io (NOT stored here):
+#   fly secrets set DATABASE_URL=...
+#   fly secrets set ADMIN_API_KEY=...
+#
+# Initial app setup:
+#   fly apps create tripmater-server-staging
+#   fly apps create tripmater-server
+
+app = 'tripmater-server'
+primary_region = 'nrt'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+# Non-sensitive runtime defaults only.
+# DATABASE_URL and ADMIN_API_KEY must be set via fly secrets.
+[env]
+  PORT = '3000'
+  HOST = '0.0.0.0'
+  LOG_LEVEL = 'info'
+  MAX_INFLIGHT_REQUESTS = '200'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = '10s'
+    interval = '30s'
+    method = 'GET'
+    path = '/healthz'
+    timeout = '5s'
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
