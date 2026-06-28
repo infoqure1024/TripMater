@@ -4,6 +4,7 @@ import { AppConfig } from './config';
 import { reqSerializer, loggerPlugin } from './plugins/logger';
 import { makeDevicePreHandler, makeAdminPreHandler } from './plugins/auth';
 import { healthzRoute } from './routes/healthz';
+import { locationsRoute } from './routes/locations';
 import './types/fastify-augment';
 
 interface AppOverrides {
@@ -33,6 +34,7 @@ export function buildApp(config: AppConfig, overrides?: AppOverrides): FastifyIn
 
   void fastify.register(loggerPlugin);
   void fastify.register(healthzRoute);
+  void fastify.register(locationsRoute);
 
   return fastify;
 }
