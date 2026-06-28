@@ -172,8 +172,11 @@ describeDb('統合テスト (real PostgreSQL)', () => {
   });
 
   afterEach(async () => {
-    // Clean up all devices created during the test (cascades to api_tokens + location_samples)
+    // location_samples.device_id has NO ACTION (no cascade), so delete child rows first.
     if (createdDeviceIds.length > 0) {
+      await cleanupPool.query(`DELETE FROM location_samples WHERE device_id = ANY($1::text[])`, [
+        createdDeviceIds,
+      ]);
       await cleanupPool.query(`DELETE FROM devices WHERE id = ANY($1::text[])`, [createdDeviceIds]);
       createdDeviceIds.length = 0;
     }
