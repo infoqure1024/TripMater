@@ -8,9 +8,11 @@ declare module 'fastify' {
     db: Pool;
     authenticateDevice(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     authenticateAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    authenticateQuery(request: FastifyRequest, reply: FastifyReply): Promise<void>;
   }
   interface FastifyRequest {
     deviceId: string;
+    isAdmin: boolean;
   }
 }
 

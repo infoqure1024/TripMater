@@ -2,12 +2,13 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { AppConfig } from './config';
 import { reqSerializer, loggerPlugin } from './plugins/logger';
-import { makeDevicePreHandler, makeAdminPreHandler } from './plugins/auth';
+import { makeDevicePreHandler, makeAdminPreHandler, makeQueryPreHandler } from './plugins/auth';
 import { registerErrorHandler } from './plugins/errorHandler';
 import { registerOverloadGuard } from './plugins/overloadGuard';
 import { healthzRoute } from './routes/healthz';
 import { locationsRoute } from './routes/locations';
 import { adminRoute } from './routes/admin';
+import { queryRoute } from './routes/query';
 import './types/fastify-augment';
 
 // 1 MB global body limit aligns with the per-route limit in locations.ts (§7).
@@ -33,8 +34,10 @@ export function buildApp(config: AppConfig, overrides?: AppOverrides): FastifyIn
 
   fastify.decorate('db', pool);
   fastify.decorateRequest('deviceId', '');
+  fastify.decorateRequest('isAdmin', false);
   fastify.decorate('authenticateDevice', makeDevicePreHandler(pool));
   fastify.decorate('authenticateAdmin', makeAdminPreHandler(config.adminApiKey));
+  fastify.decorate('authenticateQuery', makeQueryPreHandler(pool, config.adminApiKey));
 
   fastify.addHook('onClose', async () => {
     await pool.end();
@@ -48,6 +51,7 @@ export function buildApp(config: AppConfig, overrides?: AppOverrides): FastifyIn
   void fastify.register(healthzRoute);
   void fastify.register(locationsRoute);
   void fastify.register(adminRoute);
+  void fastify.register(queryRoute);
 
   return fastify;
 }
