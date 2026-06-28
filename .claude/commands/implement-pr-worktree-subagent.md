@@ -4,8 +4,8 @@ Issue#$ARGUMENTS に対する PR#$ARGUMENTS2 について Git Worktree を使い
 
 ### 1. 前処理（Worktree 作成前）
 
-- 現在のブランチが`feature/issue-$ARGUMENTS`以外の場合は、`feature/issue-$ARGUMENTS`ブランチをチェックアウトしてください。
 - `git checkout feature/issue-$ARGUMENTS && git pull origin feature/issue-$ARGUMENTS` で最新の`feature/issue-$ARGUMENTS`ブランチを取得してください。
+- 現在のブランチが`feature/issue-$ARGUMENTS`以外の場合は、`feature/issue-$ARGUMENTS`ブランチをチェックアウトしてください。
 - `feature/issue-$ARGUMENTS`が存在しない場合は報告してください。
 
 ### 2. Worktree 作成

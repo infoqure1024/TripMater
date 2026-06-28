@@ -4,8 +4,8 @@ Issue#$ARGUMENTS を Git Worktree を使って実装してください。
 
 ### 1. 前処理（Worktree 作成前）
 
-- 現在のブランチが main 以外の場合は、main ブランチをチェックアウトしてください。
 - `git checkout main && git pull origin main` で最新の main ブランチを取得してください。
+- 現在のブランチが main 以外の場合は、main ブランチをチェックアウトしてください。
 - 既存のブランチ `feature/issue-$ARGUMENTS` があれば削除してください。
 
 ### 2. Worktree 作成
