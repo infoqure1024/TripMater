@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyError } from 'fastify';
+import type { IngestCounts } from '../core/metrics';
 
 interface ValidSample {
   id: string;
@@ -15,12 +16,7 @@ interface ValidSample {
   distanceDeltaM: number | null;
 }
 
-interface IngestResult {
-  received: number;
-  inserted: number;
-  duplicates: number;
-  dropped: number;
-  deviceMismatch: number;
+interface IngestResult extends IngestCounts {
   schemaVersion: number;
 }
 
@@ -93,6 +89,24 @@ const EMPTY_ENVELOPE: IngestResult = {
 };
 
 export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
+  // Track consecutive 4xx errors per device for poison-pill detection.
+  // req.deviceId is set by auth on success (non-empty), or remains '' on auth failure.
+  // Use req.ip as fallback key for auth failures so repeated bad-token attempts are tracked.
+  fastify.addHook('onResponse', (req, reply, done) => {
+    const status = reply.statusCode;
+    if (status >= 400 && status < 500) {
+      const key = req.deviceId || req.ip;
+      const count = fastify.poisonPillDetector.record4xx(key);
+      if (count >= fastify.poisonPillDetector.configuredErrorThreshold) {
+        req.log.warn(
+          { deviceKey: key, consecutive4xx: count },
+          'poison pill: consecutive 4xx errors from device'
+        );
+      }
+    }
+    done();
+  });
+
   // Scope: catch body-parse errors (invalid JSON → 400) and return 200 accept-and-drop
   // so the client queue advances rather than getting stuck (§2.3, §1.4).
   fastify.setErrorHandler(async (err: FastifyError, req, reply) => {
@@ -101,6 +115,7 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
         { code: err.code },
         'envelope rejected (body parse error), returning received:0'
       );
+      fastify.metrics.recordRejectedEnvelope();
       return reply.code(200).send(EMPTY_ENVELOPE);
     }
     // 413 (body size limit) and everything else: forward to parent handler.
@@ -120,6 +135,7 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       // ── Envelope validation (§2.3) ──────────────────────────────────────────
       if (typeof body !== 'object' || body === null) {
         req.log.warn('envelope rejected: body is not an object');
+        fastify.metrics.recordRejectedEnvelope();
         return reply.code(200).send(EMPTY_ENVELOPE);
       }
 
@@ -129,12 +145,14 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       // Accept only known version 1; unknown future versions get received:0.
       if (schemaVersion !== 1) {
         req.log.warn({ schemaVersion }, 'envelope rejected: unknown schemaVersion');
+        fastify.metrics.recordRejectedEnvelope();
         return reply.code(200).send(EMPTY_ENVELOPE);
       }
 
       const samples = env['samples'];
       if (!Array.isArray(samples) || samples.length === 0) {
         req.log.warn('envelope rejected: samples must be a non-empty array');
+        fastify.metrics.recordRejectedEnvelope();
         return reply.code(200).send(EMPTY_ENVELOPE);
       }
 
@@ -241,6 +259,33 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
         deviceMismatch,
         schemaVersion: 1,
       };
+
+      // ── Observability: accumulate into server-wide counters (§7) ────────────
+      fastify.metrics.recordIngest(result);
+
+      // Silent-drop detection: warn when samples are discarded (§7).
+      if (result.dropped > 0) {
+        req.log.warn(
+          { dropped: result.dropped, received: result.received },
+          'silent drop: samples dropped in request'
+        );
+      }
+
+      // ── Poison-pill detection: stuck-retry same batch (§7) ───────────────────
+      // Only observe IDs that passed per-sample validation (validSamples),
+      // so spuriously-malformed samples don't inflate the poison-pill counter.
+      const validSampleIds = validSamples.map((s) => s.id);
+      const poisonedIds = fastify.poisonPillDetector.observeIds(validSampleIds);
+      if (poisonedIds.length > 0) {
+        req.log.warn(
+          { poisonedIds, deviceId },
+          'poison pill: same sample IDs retried repeatedly — stuck client batch'
+        );
+      }
+
+      // Record successful ingest so the consecutive-4xx counter resets.
+      fastify.poisonPillDetector.recordSuccess(deviceId);
+
       return reply.code(200).send(result);
     }
   );
