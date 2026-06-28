@@ -7,6 +7,7 @@ import { registerErrorHandler } from './plugins/errorHandler';
 import { registerOverloadGuard } from './plugins/overloadGuard';
 import { healthzRoute } from './routes/healthz';
 import { locationsRoute } from './routes/locations';
+import { adminRoute } from './routes/admin';
 import './types/fastify-augment';
 
 // 1 MB global body limit aligns with the per-route limit in locations.ts (§7).
@@ -46,6 +47,7 @@ export function buildApp(config: AppConfig, overrides?: AppOverrides): FastifyIn
   void fastify.register(loggerPlugin);
   void fastify.register(healthzRoute);
   void fastify.register(locationsRoute);
+  void fastify.register(adminRoute);
 
   return fastify;
 }
