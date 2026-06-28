@@ -28,12 +28,12 @@
   },
   "lint-staged": {
     "src/**/*.ts": [
-      "eslint --fix",
-      "prettier --write"
+      "./node_modules/.bin/eslint --fix",
+      "./node_modules/.bin/prettier --write"
     ],
     "__tests__/**/*.ts": [
-      "eslint --fix",
-      "prettier --write"
+      "./node_modules/.bin/eslint --fix",
+      "./node_modules/.bin/prettier --write"
     ]
   },
   "devDependencies": {
