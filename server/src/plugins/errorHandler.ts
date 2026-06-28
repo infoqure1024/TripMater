@@ -13,7 +13,7 @@ const HTTP_CODE_TO_ERROR_CODE: Record<number, string> = {
   504: 'GATEWAY_TIMEOUT',
 };
 
-const RETRY_AFTER_SECONDS = 5;
+export const RETRY_AFTER_SECONDS = 5;
 
 export function registerErrorHandler(fastify: FastifyInstance): void {
   // Inject Retry-After on every 503 response, regardless of origin.

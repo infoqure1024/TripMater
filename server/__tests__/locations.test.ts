@@ -111,6 +111,7 @@ function makeApp(pool: Pool, maxInflightRequests = 200): FastifyInstance {
       adminApiKey: 'secret-admin-key',
       logLevel: 'silent',
       maxInflightRequests,
+      requestTimeoutMs: 29_000,
     },
     { pool }
   );

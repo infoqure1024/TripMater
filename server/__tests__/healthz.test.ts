@@ -10,6 +10,7 @@ function makeApp() {
     adminApiKey: 'test-key',
     logLevel: 'silent',
     maxInflightRequests: 200,
+    requestTimeoutMs: 29_000,
   });
 }
 

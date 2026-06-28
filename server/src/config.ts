@@ -5,6 +5,7 @@ export interface AppConfig {
   adminApiKey: string;
   logLevel: string;
   maxInflightRequests: number;
+  requestTimeoutMs: number;
 }
 
 function requireEnv(name: string): string {
@@ -20,6 +21,17 @@ function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] ?? defaultValue;
 }
 
+function parsePositiveInt(envName: string, raw: string, defaultValue: number): number {
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    console.warn(
+      `[config] ${envName} is not a valid non-negative integer ("${raw}"), using default ${defaultValue}`
+    );
+    return defaultValue;
+  }
+  return parsed;
+}
+
 export function loadConfig(): AppConfig {
   const port = parseInt(optionalEnv('PORT', '3000'), 10);
   if (isNaN(port) || port < 1 || port > 65535) {
@@ -29,7 +41,18 @@ export function loadConfig(): AppConfig {
     process.exit(1);
   }
 
-  const maxInflightRequests = parseInt(optionalEnv('MAX_INFLIGHT_REQUESTS', '200'), 10);
+  const maxInflightRequests = parsePositiveInt(
+    'MAX_INFLIGHT_REQUESTS',
+    optionalEnv('MAX_INFLIGHT_REQUESTS', '200'),
+    200
+  );
+
+  // 29 s — comfortably within the client's 30 s read timeout (§7).
+  const requestTimeoutMs = parsePositiveInt(
+    'REQUEST_TIMEOUT_MS',
+    optionalEnv('REQUEST_TIMEOUT_MS', '29000'),
+    29_000
+  );
 
   return {
     port,
@@ -37,6 +60,7 @@ export function loadConfig(): AppConfig {
     databaseUrl: requireEnv('DATABASE_URL'),
     adminApiKey: requireEnv('ADMIN_API_KEY'),
     logLevel: optionalEnv('LOG_LEVEL', 'info'),
-    maxInflightRequests: isNaN(maxInflightRequests) ? 200 : maxInflightRequests,
+    maxInflightRequests,
+    requestTimeoutMs,
   };
 }

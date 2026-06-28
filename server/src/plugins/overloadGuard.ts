@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-
-const RETRY_AFTER_SECONDS = 5;
+import { RETRY_AFTER_SECONDS } from './errorHandler';
 
 /**
  * Rejects incoming requests with 503 + Retry-After when the number of

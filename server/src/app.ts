@@ -12,9 +12,6 @@ import './types/fastify-augment';
 // 1 MB global body limit aligns with the per-route limit in locations.ts (§7).
 const GLOBAL_BODY_LIMIT = 1 * 1024 * 1024;
 
-// 29 s — comfortably within the client's 30 s read timeout (§7).
-const REQUEST_TIMEOUT_MS = 29_000;
-
 interface AppOverrides {
   pool?: Pool;
 }
@@ -28,7 +25,7 @@ export function buildApp(config: AppConfig, overrides?: AppOverrides): FastifyIn
       },
     },
     bodyLimit: GLOBAL_BODY_LIMIT,
-    requestTimeout: REQUEST_TIMEOUT_MS,
+    requestTimeout: config.requestTimeoutMs,
   });
 
   const pool = overrides?.pool ?? new Pool({ connectionString: config.databaseUrl });
