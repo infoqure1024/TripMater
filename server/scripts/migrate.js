@@ -1,43 +1,58 @@
 #!/usr/bin/env node
-// Placeholder migration runner.
-//
-// Checks whether a migrations/ directory exists at the project root (server/).
-// - If not:  logs a notice and exits 0 so CI passes while Issue #51 is pending.
-// - If yes:  this stub exits 1 with a message to wire up the actual migration tool
-//            (node-pg-migrate or similar). Replace this file when Issue #51 lands.
-//
-// Usage:
-//   node scripts/migrate.js up
-//   node scripts/migrate.js down
+/**
+ * Migration runner (node-pg-migrate).
+ *
+ * Usage:
+ *   DATABASE_URL=postgresql://... node scripts/migrate.js up
+ *   DATABASE_URL=postgresql://... node scripts/migrate.js down
+ *
+ * Typically invoked via npm scripts:
+ *   npm run migrate:up
+ *   npm run migrate:down
+ */
 
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 
 const direction = process.argv[2];
 
 if (direction !== 'up' && direction !== 'down') {
-  console.error(`Usage: node scripts/migrate.js <up|down>`);
+  console.error('Usage: node scripts/migrate.js <up|down>');
   console.error(`Got: ${direction ?? '(no argument)'}`);
   process.exit(1);
 }
 
-const migrationsDir = path.join(__dirname, '..', 'migrations');
-
-if (!fs.existsSync(migrationsDir)) {
-  console.log(
-    `[migrate] No migrations found at ${migrationsDir} — skipping (Issue #51)`
+const databaseUrl = process.env['DATABASE_URL'];
+if (!databaseUrl) {
+  console.error(
+    '[migrate] DATABASE_URL environment variable is required.\n' +
+      '          Copy .env.example to .env and fill in the value.'
   );
-  process.exit(0);
+  process.exit(1);
 }
 
-// migrations/ directory exists but this stub does not know how to run it yet.
-// Wire up node-pg-migrate (or equivalent) here when Issue #51 is implemented.
-console.error(
-  `[migrate] migrations/ directory found but the migration runner is not yet configured.`
-);
-console.error(
-  `[migrate] Please implement the actual migration tool integration in server/scripts/migrate.js (Issue #51).`
-);
-process.exit(1);
+// node-pg-migrate runner (CJS default export interop)
+// node-pg-migrate v8 exposes the runner as the named export `runner`
+// (no `default` export). Keep `default` as a fallback for older versions.
+const nodePgMigrate = require('node-pg-migrate');
+const migrate = nodePgMigrate.runner ?? nodePgMigrate.default ?? nodePgMigrate;
+
+migrate({
+  databaseUrl,
+  migrationsTable: 'pgmigrations',
+  direction,
+  dir: path.join(__dirname, '..', 'migrations'),
+  // 'up'  → run all pending migrations
+  // 'down' → roll back one migration (safe default for manual rollback)
+  count: direction === 'up' ? Infinity : 1,
+  log: (msg) => console.log(`[migrate] ${msg}`),
+})
+  .then(() => {
+    console.log(`[migrate] ${direction} completed successfully`);
+    process.exit(0);
+  })
+  .catch((/** @type {Error} */ err) => {
+    console.error(`[migrate] ${direction} failed: ${err.message}`);
+    process.exit(1);
+  });
