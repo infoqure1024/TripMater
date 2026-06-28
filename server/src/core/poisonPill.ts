@@ -3,6 +3,11 @@ interface IdEntry {
   firstSeenAt: number;
 }
 
+interface ErrorEntry {
+  count: number;
+  lastSeenAt: number;
+}
+
 /**
  * PoisonPillDetector tracks two categories of problematic client behaviour:
  *
@@ -15,23 +20,36 @@ interface IdEntry {
  *    envelope patterns that never change. Consecutive-count is reset to 0 on
  *    any successful ingest.
  *
+ * Memory bounds:
+ *   - idMap: capped at maxIdMapSize entries. When the cap is hit, prune() is
+ *     called inline; if still full, new IDs are skipped to prevent OOM.
+ *     Worst-case: maxIdMapSize × ~200 bytes ≈ 20 MB at the default 100,000 cap.
+ *   - errorMap: pruned in prune() alongside idMap using the same windowMs TTL.
+ *
  * Both maps are pruned periodically (call `prune()` on a cron/interval).
  */
 export class PoisonPillDetector {
   private readonly windowMs: number;
   private readonly idThreshold: number;
   private readonly errorThreshold: number;
+  private readonly maxIdMapSize: number;
 
   // Map from sample id → observation entry within the current window.
   private readonly idMap = new Map<string, IdEntry>();
 
-  // Map from device key → count of consecutive 4xx errors.
-  private readonly errorMap = new Map<string, number>();
+  // Map from device key → consecutive 4xx error entry.
+  private readonly errorMap = new Map<string, ErrorEntry>();
 
-  constructor(windowMs = 60_000, idThreshold = 3, errorThreshold = 5) {
+  constructor(
+    windowMs = 60_000,
+    idThreshold = 3,
+    errorThreshold = 5,
+    maxIdMapSize = 100_000
+  ) {
     this.windowMs = windowMs;
     this.idThreshold = idThreshold;
     this.errorThreshold = errorThreshold;
+    this.maxIdMapSize = maxIdMapSize;
   }
 
   /**
@@ -46,6 +64,15 @@ export class PoisonPillDetector {
     for (const id of ids) {
       const entry = this.idMap.get(id);
       if (!entry) {
+        // Enforce hard size cap before inserting a new entry.
+        if (this.idMap.size >= this.maxIdMapSize) {
+          this.prune();
+          // If map is still full after pruning (all entries are recent), skip this ID
+          // to prevent unbounded memory growth.
+          if (this.idMap.size >= this.maxIdMapSize) {
+            continue;
+          }
+        }
         this.idMap.set(id, { count: 1, firstSeenAt: now });
       } else if (now - entry.firstSeenAt > this.windowMs) {
         // Window has elapsed — reset the entry rather than pruning here.
@@ -67,9 +94,10 @@ export class PoisonPillDetector {
    * whether to log WARN.
    */
   record4xx(deviceKey: string): number {
-    const current = this.errorMap.get(deviceKey) ?? 0;
-    const next = current + 1;
-    this.errorMap.set(deviceKey, next);
+    const now = Date.now();
+    const entry = this.errorMap.get(deviceKey);
+    const next = (entry?.count ?? 0) + 1;
+    this.errorMap.set(deviceKey, { count: next, lastSeenAt: now });
     return next;
   }
 
@@ -81,14 +109,21 @@ export class PoisonPillDetector {
   }
 
   /**
-   * Prune ID entries whose time window has expired.
-   * Call periodically (e.g. every 5 minutes) to bound memory usage.
+   * Prune expired entries from both maps to bound memory usage.
+   * Call periodically (e.g. every 5 minutes).
    */
   prune(): void {
     const cutoff = Date.now() - this.windowMs;
     for (const [id, entry] of this.idMap) {
       if (entry.firstSeenAt < cutoff) {
         this.idMap.delete(id);
+      }
+    }
+    // Prune stale error entries: devices that have not sent a 4xx within windowMs
+    // are unlikely to be actively stuck and can be evicted.
+    for (const [key, entry] of this.errorMap) {
+      if (entry.lastSeenAt < cutoff) {
+        this.errorMap.delete(key);
       }
     }
   }

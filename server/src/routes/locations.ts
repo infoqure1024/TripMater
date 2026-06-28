@@ -159,6 +159,7 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       // Size limit: 1000 samples (§7). 413 is safe here because client batchSize
       // must be kept below this threshold to prevent poison-pill (§3.4).
       if (samples.length > MAX_SAMPLES) {
+        fastify.metrics.recordRejectedEnvelope();
         return reply.code(413).send({
           error: { code: 'PAYLOAD_TOO_LARGE', message: `samples must not exceed ${MAX_SAMPLES}` },
         });
@@ -180,8 +181,9 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
         // warning counter — do not exclude the sample (§3.1).
         if (s.deviceId !== null && s.deviceId !== deviceId) {
           deviceMismatch++;
+          // Truncate sampleDeviceId to prevent log amplification from attacker-controlled strings.
           req.log.warn(
-            { sampleDeviceId: s.deviceId, tokenDeviceId: deviceId },
+            { sampleDeviceId: s.deviceId.slice(0, 64), tokenDeviceId: deviceId },
             'deviceMismatch: sample.deviceId differs from token device'
           );
         }
@@ -242,6 +244,9 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
         } catch (err) {
           if (client) await client.query('ROLLBACK').catch(() => {}); // best-effort rollback
           req.log.error({ err }, 'DB error during location ingest');
+          // Record what was classified before the DB failed so received/dropped stay accurate
+          // even during outages. inserted/duplicates are 0 because the transaction rolled back.
+          fastify.metrics.recordIngest({ received, inserted: 0, duplicates: 0, dropped, deviceMismatch });
           return reply.code(503).send({
             error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' },
           });
@@ -278,7 +283,7 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       const poisonedIds = fastify.poisonPillDetector.observeIds(validSampleIds);
       if (poisonedIds.length > 0) {
         req.log.warn(
-          { poisonedIds, deviceId },
+          { poisonedCount: poisonedIds.length, sampleIds: poisonedIds.slice(0, 5), deviceId },
           'poison pill: same sample IDs retried repeatedly — stuck client batch'
         );
       }
