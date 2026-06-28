@@ -40,12 +40,7 @@ export class PoisonPillDetector {
   // Map from device key → consecutive 4xx error entry.
   private readonly errorMap = new Map<string, ErrorEntry>();
 
-  constructor(
-    windowMs = 60_000,
-    idThreshold = 3,
-    errorThreshold = 5,
-    maxIdMapSize = 100_000
-  ) {
+  constructor(windowMs = 60_000, idThreshold = 3, errorThreshold = 5, maxIdMapSize = 100_000) {
     this.windowMs = windowMs;
     this.idThreshold = idThreshold;
     this.errorThreshold = errorThreshold;

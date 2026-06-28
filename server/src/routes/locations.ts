@@ -246,7 +246,13 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
           req.log.error({ err }, 'DB error during location ingest');
           // Record what was classified before the DB failed so received/dropped stay accurate
           // even during outages. inserted/duplicates are 0 because the transaction rolled back.
-          fastify.metrics.recordIngest({ received, inserted: 0, duplicates: 0, dropped, deviceMismatch });
+          fastify.metrics.recordIngest({
+            received,
+            inserted: 0,
+            duplicates: 0,
+            dropped,
+            deviceMismatch,
+          });
           return reply.code(503).send({
             error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' },
           });
