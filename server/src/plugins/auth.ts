@@ -105,3 +105,29 @@ export function makeAdminPreHandler(
     }
   };
 }
+
+// Combined preHandler for query endpoints: accepts X-Admin-Key (admin) or Bearer token (device).
+// Sets req.isAdmin and req.deviceId (device path only) so route handlers can enforce IDOR.
+export function makeQueryPreHandler(
+  pool: Pool,
+  adminApiKey: string
+): (req: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  const deviceHandler = makeDevicePreHandler(pool);
+
+  return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (req.headers['x-admin-key']) {
+      const key = req.headers['x-admin-key'];
+      if (key !== adminApiKey) {
+        return reply
+          .code(401)
+          .send({ error: { code: 'UNAUTHORIZED', message: 'Invalid or missing X-Admin-Key' } });
+      }
+      req.isAdmin = true;
+    } else {
+      await deviceHandler(req, reply);
+      // If deviceHandler sent a reply (auth failure), stop here.
+      if (reply.sent) return;
+      req.isAdmin = false;
+    }
+  };
+}
