@@ -62,9 +62,9 @@ export function makeDevicePreHandler(
       if (result.rows.length === 0) {
         return reply.code(401).send({ error: 'Invalid token' });
       }
-      row = result.rows[0];
-    } catch {
-      req.log.error('DB error during token lookup');
+      row = result.rows[0]!;
+    } catch (err) {
+      req.log.error({ err }, 'DB error during token lookup');
       return reply.code(503).send({ error: 'Service temporarily unavailable' });
     }
 
