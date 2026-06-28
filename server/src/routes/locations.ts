@@ -67,6 +67,10 @@ function validateSample(raw: unknown): ValidSample | null {
     id,
     deviceId: typeof deviceId === 'string' ? deviceId : null,
     timestamp,
+    // lat/lng are clamped rather than dropped: a clampable required field is
+    // still a valid (if imprecise) coordinate. Mobile GPS should never exceed
+    // the physical bounds, but clamping avoids discarding the entire sample
+    // over a cosmetically wrong value.
     lat: Math.max(-90, Math.min(90, lat)),
     lng: Math.max(-180, Math.min(180, lng)),
     speedMps: Math.max(0, speedMps),
@@ -131,7 +135,7 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       const samples = env['samples'];
       if (!Array.isArray(samples) || samples.length === 0) {
         req.log.warn('envelope rejected: samples must be a non-empty array');
-        return reply.code(200).send({ ...EMPTY_ENVELOPE, schemaVersion: 1 });
+        return reply.code(200).send(EMPTY_ENVELOPE);
       }
 
       // Size limit: 1000 samples (§7). 413 is safe here because client batchSize

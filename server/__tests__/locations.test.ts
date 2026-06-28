@@ -67,7 +67,15 @@ function makePool(tokenRows: TokenRow[], insertedIds: string[] = []): Pool {
 
 /** Pool whose connect() client throws on the INSERT query to simulate a DB error. */
 function makeErrorPool(tokenRows: TokenRow[]): Pool {
-  const client: Partial<PoolClient> & { query: jest.Mock; release: jest.Mock } = {
+  return makeErrorPoolWithClient(tokenRows)[0];
+}
+
+/**
+ * Same as makeErrorPool but also returns the mock client so callers can assert
+ * that release() was invoked in the finally block.
+ */
+function makeErrorPoolWithClient(tokenRows: TokenRow[]): [Pool, { release: jest.Mock }] {
+  const client: { query: jest.Mock; release: jest.Mock } = {
     query: jest.fn().mockImplementation(async (sql: string) => {
       const s = sql.trim().toUpperCase();
       if (s === 'BEGIN' || s === 'ROLLBACK') return { rows: [], rowCount: 0 };
@@ -76,11 +84,13 @@ function makeErrorPool(tokenRows: TokenRow[]): Pool {
     release: jest.fn(),
   };
 
-  return {
+  const pool = {
     query: jest.fn().mockResolvedValue({ rows: tokenRows, rowCount: tokenRows.length }),
     connect: jest.fn().mockResolvedValue(client),
     end: jest.fn().mockResolvedValue(undefined),
   } as unknown as Pool;
+
+  return [pool, client];
 }
 
 /** Pool whose connect() itself rejects to simulate pool exhaustion or DB unreachable. */
@@ -359,6 +369,18 @@ describe('POST /api/v1/locations', () => {
       body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
     });
     expect(res.statusCode).toBe(503);
+  });
+
+  it('calls client.release() in finally block even when INSERT throws', async () => {
+    const [pool, mockClient] = makeErrorPoolWithClient([validTokenRow()]);
+    app = makeApp(pool);
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(mockClient.release).toHaveBeenCalledTimes(1);
   });
 
   it('returns 503 when pool.connect() itself rejects (pool exhausted)', async () => {
