@@ -130,7 +130,9 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
                  MAX(recorded_at)                      AS ended_at
                FROM location_samples
                WHERE session_id = $1
-               GROUP BY session_id, device_id`
+               GROUP BY session_id, device_id
+               ORDER BY MIN(recorded_at) ASC
+               LIMIT 1`
             : `SELECT
                  session_id,
                  device_id,
@@ -215,19 +217,32 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
             distance_delta_m: number | null;
             ingested_at: Date;
           }>(
-            `SELECT
-               id, device_id, session_id, recorded_at,
-               lat, lng, speed_mps, raw_speed_mps, accuracy_m,
-               heading_deg, altitude_m, distance_delta_m, ingested_at
-             FROM location_samples
-             WHERE session_id = $1
-             ORDER BY recorded_at ASC
-             LIMIT $2 OFFSET $3`,
-            [sessionId, page.limit, page.offset]
+            req.isAdmin
+              ? `SELECT
+                   id, device_id, session_id, recorded_at,
+                   lat, lng, speed_mps, raw_speed_mps, accuracy_m,
+                   heading_deg, altitude_m, distance_delta_m, ingested_at
+                 FROM location_samples
+                 WHERE session_id = $1
+                 ORDER BY recorded_at ASC
+                 LIMIT $2 OFFSET $3`
+              : `SELECT
+                   id, device_id, session_id, recorded_at,
+                   lat, lng, speed_mps, raw_speed_mps, accuracy_m,
+                   heading_deg, altitude_m, distance_delta_m, ingested_at
+                 FROM location_samples
+                 WHERE session_id = $1 AND device_id = $2
+                 ORDER BY recorded_at ASC
+                 LIMIT $3 OFFSET $4`,
+            req.isAdmin
+              ? [sessionId, page.limit, page.offset]
+              : [sessionId, req.deviceId, page.limit, page.offset]
           ),
           fastify.db.query<{ total: string }>(
-            `SELECT COUNT(*) AS total FROM location_samples WHERE session_id = $1`,
-            [sessionId]
+            req.isAdmin
+              ? `SELECT COUNT(*) AS total FROM location_samples WHERE session_id = $1`
+              : `SELECT COUNT(*) AS total FROM location_samples WHERE session_id = $1 AND device_id = $2`,
+            req.isAdmin ? [sessionId] : [sessionId, req.deviceId]
           ),
         ]);
 

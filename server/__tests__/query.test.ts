@@ -366,6 +366,24 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     expect(res.json<SessionSummary>().deviceId).toBe(OTHER_DEVICE_ID);
   });
 
+  it('returns 200 with first row when session_id appears under multiple devices (admin, UUID collision)', async () => {
+    // If session_id appears for two devices (client bug / UUID collision), admin path uses
+    // GROUP BY session_id, device_id ORDER BY MIN(recorded_at) ASC LIMIT 1 → deterministic first row.
+    app = makeApp(
+      makePool([
+        // DB returns only one row due to LIMIT 1 in the fixed admin SQL
+        { rows: [sessionRow({ device_id: DEVICE_ID })] },
+      ])
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<SessionSummary>().sessionId).toBe(SESSION_ID);
+  });
+
   it('returns 503 on DB error', async () => {
     app = makeApp(
       makePool([
@@ -417,14 +435,13 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
   });
 
   it('returns 200 with samples for device token accessing own session', async () => {
-    app = makeApp(
-      makePool([
-        { rows: [validTokenRow(DEVICE_ID)] },      // auth
-        { rows: [{ device_id: DEVICE_ID }] },      // ownership check
-        { rows: [sampleRow()] },                   // samples query (Promise.all)
-        { rows: [{ total: '1' }] },                // count query (Promise.all)
-      ])
-    );
+    const pool = makePool([
+      { rows: [validTokenRow(DEVICE_ID)] },      // auth
+      { rows: [{ device_id: DEVICE_ID }] },      // ownership check
+      { rows: [sampleRow()] },                   // samples query (Promise.all)
+      { rows: [{ total: '1' }] },                // count query (Promise.all)
+    ]);
+    app = makeApp(pool);
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/sessions/${SESSION_ID}/samples`,
@@ -438,6 +455,15 @@ describe('GET /api/v1/sessions/:sessionId/samples', () => {
     expect(body.samples[0].deviceId).toBe(DEVICE_ID);
     expect(body.samples[0].lat).toBe(35.6895);
     expect(body.samples[0].speedMps).toBe(13.89);
+
+    // Verify device_id is passed to both the samples fetch and count queries (security fix).
+    // pool.query call order: [0]=auth, [1]=ownership, [2]=samples, [3]=count
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const poolQueryMock = jest.mocked(pool.query);
+    const samplesFetchParams = poolQueryMock.mock.calls[2][1] as unknown[];
+    const countParams = poolQueryMock.mock.calls[3][1] as unknown[];
+    expect(samplesFetchParams).toContain(DEVICE_ID);
+    expect(countParams).toContain(DEVICE_ID);
   });
 
   it('returns 200 with samples for admin (no ownership check)', async () => {
