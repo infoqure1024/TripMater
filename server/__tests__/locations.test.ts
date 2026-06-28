@@ -83,6 +83,15 @@ function makeErrorPool(tokenRows: TokenRow[]): Pool {
   } as unknown as Pool;
 }
 
+/** Pool whose connect() itself rejects to simulate pool exhaustion or DB unreachable. */
+function makeConnectErrorPool(tokenRows: TokenRow[]): Pool {
+  return {
+    query: jest.fn().mockResolvedValue({ rows: tokenRows, rowCount: tokenRows.length }),
+    connect: jest.fn().mockRejectedValue(new Error('connection pool exhausted')),
+    end: jest.fn().mockResolvedValue(undefined),
+  } as unknown as Pool;
+}
+
 function makeApp(pool: Pool): FastifyInstance {
   return buildApp(
     {
@@ -249,7 +258,12 @@ describe('POST /api/v1/locations', () => {
       body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ received: number; inserted: number; duplicates: number; dropped: number }>();
+    const body = res.json<{
+      received: number;
+      inserted: number;
+      duplicates: number;
+      dropped: number;
+    }>();
     expect(body.received).toBe(1);
     expect(body.inserted).toBe(0);
     expect(body.duplicates).toBe(1);
@@ -263,9 +277,9 @@ describe('POST /api/v1/locations', () => {
     const goodId1 = '00000000-0000-0000-0000-000000000001';
     const goodId2 = '00000000-0000-0000-0000-000000000002';
     const samples = [
-      { ...makeSample({ id: 'not-a-uuid' }) },     // dropped
-      { ...makeSample({ id: goodId1 }) },           // inserted
-      { ...makeSample({ id: goodId2 }) },           // duplicate (conflict)
+      { ...makeSample({ id: 'not-a-uuid' }) }, // dropped
+      { ...makeSample({ id: goodId1 }) }, // inserted
+      { ...makeSample({ id: goodId2 }) }, // duplicate (conflict)
     ];
     // Only goodId1 is "newly inserted"
     app = makeApp(makePool([validTokenRow()], [goodId1]));
@@ -276,7 +290,12 @@ describe('POST /api/v1/locations', () => {
       body: JSON.stringify({ schemaVersion: 1, samples }),
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ received: number; inserted: number; duplicates: number; dropped: number }>();
+    const body = res.json<{
+      received: number;
+      inserted: number;
+      duplicates: number;
+      dropped: number;
+    }>();
     expect(body.received).toBe(3);
     expect(body.dropped).toBe(1);
     expect(body.inserted).toBe(1);
@@ -289,11 +308,11 @@ describe('POST /api/v1/locations', () => {
 
   it('drops samples with missing required fields', async () => {
     const samples = [
-      makeSample({ id: undefined }),            // missing id
-      makeSample({ timestamp: undefined }),     // missing timestamp
-      makeSample({ lat: undefined }),           // missing lat
-      makeSample({ speedMps: -1 }),             // negative speedMps
-      makeSample({ accuracyM: -5 }),            // negative accuracyM
+      makeSample({ id: undefined }), // missing id
+      makeSample({ timestamp: undefined }), // missing timestamp
+      makeSample({ lat: undefined }), // missing lat
+      makeSample({ speedMps: -1 }), // negative speedMps
+      makeSample({ accuracyM: -5 }), // negative accuracyM
     ];
     app = makeApp(makePool([validTokenRow()], []));
     const res = await app.inject({
@@ -340,6 +359,31 @@ describe('POST /api/v1/locations', () => {
       body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
     });
     expect(res.statusCode).toBe(503);
+  });
+
+  it('returns 503 when pool.connect() itself rejects (pool exhausted)', async () => {
+    app = makeApp(makeConnectErrorPool([validTokenRow()]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  // ── schemaVersion absent → received:0 ────────────────────────────────────
+
+  it('returns 200 received:0 when schemaVersion field is absent', async () => {
+    app = makeApp(makePool([validTokenRow()]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ received: number }>().received).toBe(0);
   });
 
   // ── All samples dropped → no DB call needed ───────────────────────────────

@@ -61,6 +61,7 @@ function validateSample(raw: unknown): ValidSample | null {
   const altitude = s['altitudeM'];
   const distanceDelta = s['distanceDeltaM'];
   const deviceId = s['deviceId'];
+  const sessionId = s['sessionId'];
 
   return {
     id,
@@ -73,7 +74,7 @@ function validateSample(raw: unknown): ValidSample | null {
     rawSpeedMps: isFiniteNum(rawSpeed) ? Math.max(0, rawSpeed) : null,
     headingDeg: isFiniteNum(heading) ? ((heading % 360) + 360) % 360 : null,
     altitudeM: isFiniteNum(altitude) ? altitude : null,
-    sessionId: typeof s['sessionId'] === 'string' ? s['sessionId'] : null,
+    sessionId: typeof sessionId === 'string' ? sessionId : null,
     distanceDeltaM: isFiniteNum(distanceDelta) ? distanceDelta : null,
   };
 }
@@ -92,7 +93,10 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
   // so the client queue advances rather than getting stuck (§2.3, §1.4).
   fastify.setErrorHandler(async (err: FastifyError, req, reply) => {
     if (err.statusCode === 400) {
-      req.log.warn({ code: err.code }, 'envelope rejected (body parse error), returning received:0');
+      req.log.warn(
+        { code: err.code },
+        'envelope rejected (body parse error), returning received:0'
+      );
       return reply.code(200).send(EMPTY_ENVELOPE);
     }
     // 413 (body size limit) and everything else: forward to parent handler.
@@ -133,9 +137,9 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
       // Size limit: 1000 samples (§7). 413 is safe here because client batchSize
       // must be kept below this threshold to prevent poison-pill (§3.4).
       if (samples.length > MAX_SAMPLES) {
-        return reply
-          .code(413)
-          .send({ error: { code: 'PAYLOAD_TOO_LARGE', message: `samples must not exceed ${MAX_SAMPLES}` } });
+        return reply.code(413).send({
+          error: { code: 'PAYLOAD_TOO_LARGE', message: `samples must not exceed ${MAX_SAMPLES}` },
+        });
       }
 
       // ── Per-sample classification (§3.3) ────────────────────────────────────
@@ -167,8 +171,9 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
 
       // ── DB: 1 transaction, batch INSERT ON CONFLICT DO NOTHING (§3.3) ───────
       if (validSamples.length > 0) {
-        const client = await fastify.db.connect();
+        let client: import('pg').PoolClient | undefined;
         try {
+          client = await fastify.db.connect();
           await client.query('BEGIN');
 
           // Batch insert via unnest — single round-trip, O(n) params.
@@ -213,13 +218,13 @@ export async function locationsRoute(fastify: FastifyInstance): Promise<void> {
 
           await client.query('COMMIT');
         } catch (err) {
-          await client.query('ROLLBACK').catch(() => {}); // best-effort rollback
+          if (client) await client.query('ROLLBACK').catch(() => {}); // best-effort rollback
           req.log.error({ err }, 'DB error during location ingest');
-          return reply
-            .code(503)
-            .send({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' } });
+          return reply.code(503).send({
+            error: { code: 'SERVICE_UNAVAILABLE', message: 'Service temporarily unavailable' },
+          });
         } finally {
-          client.release();
+          if (client) client.release();
         }
       }
 
