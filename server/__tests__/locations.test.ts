@@ -102,7 +102,7 @@ function makeConnectErrorPool(tokenRows: TokenRow[]): Pool {
   } as unknown as Pool;
 }
 
-function makeApp(pool: Pool): FastifyInstance {
+function makeApp(pool: Pool, maxInflightRequests = 200): FastifyInstance {
   return buildApp(
     {
       port: 0,
@@ -110,6 +110,7 @@ function makeApp(pool: Pool): FastifyInstance {
       databaseUrl: 'postgresql://localhost/test',
       adminApiKey: 'secret-admin-key',
       logLevel: 'silent',
+      maxInflightRequests,
     },
     { pool }
   );
@@ -457,5 +458,97 @@ describe('POST /api/v1/locations', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json<{ inserted: number }>().inserted).toBe(1);
+  });
+
+  // ── 503 includes Retry-After header (§1.3, §7) ───────────────────────────
+
+  it('returns Retry-After header with 503 on DB error', async () => {
+    app = makeApp(makeErrorPool([validTokenRow()]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBeDefined();
+    const body = res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('SERVICE_UNAVAILABLE');
+  });
+
+  it('returns Retry-After header with 503 on pool exhaustion', async () => {
+    app = makeApp(makeConnectErrorPool([validTokenRow()]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBeDefined();
+  });
+
+  // ── Uniform {error:{code,message}} body shape for auth errors (§3.4) ─────
+
+  it('returns structured error body for 401 missing auth header', async () => {
+    app = makeApp(makePool([validTokenRow()]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(401);
+    const body = res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(typeof body.error.message).toBe('string');
+  });
+
+  it('returns structured error body for 403 disabled device', async () => {
+    const row = validTokenRow();
+    row.disabled_at = new Date('2024-06-01T00:00:00Z');
+    app = makeApp(makePool([row]));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(403);
+    const body = res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('FORBIDDEN');
+    expect(typeof body.error.message).toBe('string');
+  });
+});
+
+// ── Overload guard: 503 + Retry-After when maxInflight exceeded (§1.3, §7) ──
+
+describe('overload guard', () => {
+  it('returns 503 + Retry-After when maxInflightRequests is 0', async () => {
+    const app = makeApp(makePool([validTokenRow()]), 0);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample()] }),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBeDefined();
+    const body = res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('SERVICE_UNAVAILABLE');
+    await app.close();
+  });
+
+  it('passes through normally when inflight is below limit', async () => {
+    const sampleId = '00000000-0000-0000-0000-000000000001';
+    const app = makeApp(makePool([validTokenRow()], [sampleId]), 10);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/locations',
+      headers: validHeaders(),
+      body: JSON.stringify({ schemaVersion: 1, samples: [makeSample({ id: sampleId })] }),
+    });
+    expect(res.statusCode).toBe(200);
+    await app.close();
   });
 });

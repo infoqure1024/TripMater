@@ -4,6 +4,7 @@ export interface AppConfig {
   databaseUrl: string;
   adminApiKey: string;
   logLevel: string;
+  maxInflightRequests: number;
 }
 
 function requireEnv(name: string): string {
@@ -28,11 +29,14 @@ export function loadConfig(): AppConfig {
     process.exit(1);
   }
 
+  const maxInflightRequests = parseInt(optionalEnv('MAX_INFLIGHT_REQUESTS', '200'), 10);
+
   return {
     port,
     host: optionalEnv('HOST', '0.0.0.0'),
     databaseUrl: requireEnv('DATABASE_URL'),
     adminApiKey: requireEnv('ADMIN_API_KEY'),
     logLevel: optionalEnv('LOG_LEVEL', 'info'),
+    maxInflightRequests: isNaN(maxInflightRequests) ? 200 : maxInflightRequests,
   };
 }
