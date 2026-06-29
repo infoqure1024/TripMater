@@ -1,5 +1,7 @@
+.DEFAULT_GOAL := help
+
 .PHONY: up up-build down down-v build logs logs-server logs-db ps restart \
-        install dev build-ts start test lint typecheck format-check \
+        install dev build-ts start test lint typecheck format-check format \
         test-coverage test-contract \
         migrate-up migrate-down \
         clean help
@@ -61,6 +63,9 @@ typecheck:
 format-check:
 	npm run format:check
 
+format:
+	npm run format
+
 test:
 	npm test
 
@@ -108,6 +113,7 @@ help:
 	@echo "  make lint          ESLint"
 	@echo "  make typecheck     tsc --noEmit"
 	@echo "  make format-check  Prettier チェック"
+	@echo "  make format        Prettier 自動修正"
 	@echo "  make test          Jest"
 	@echo "  make test-coverage Jest + カバレッジ"
 	@echo "  make test-contract Jest (contract tests)"
