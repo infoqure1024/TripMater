@@ -60,7 +60,17 @@ export async function saveToken(token: string): Promise<void> {
 export async function loadToken(): Promise<string> {
   try {
     const result = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
-    return result ? result.password : '';
+    if (result) { return result.password; }
+    // __DEV__ only: allow injecting token via config file for adb-based local testing
+    if (__DEV__) {
+      const exists = await RNFS.exists(CONFIG_FILE_PATH);
+      if (exists) {
+        const raw = await RNFS.readFile(CONFIG_FILE_PATH, 'utf8');
+        const cfg = JSON.parse(raw) as Partial<UploadConfigPersisted & { devToken?: string }>;
+        if (cfg.devToken) { return cfg.devToken; }
+      }
+    }
+    return '';
   } catch {
     return '';
   }
