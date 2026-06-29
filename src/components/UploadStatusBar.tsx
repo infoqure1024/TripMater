@@ -1,9 +1,10 @@
 import React from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { UploaderStatus } from '../hooks/useUploader';
 
 interface Props extends UploaderStatus {
   onToggle: () => void;
+  onOpenSettings: () => void;
 }
 
 function fmtTime(d: Date | null): string {
@@ -18,6 +19,7 @@ export function UploadStatusBar({
   lastSentAt,
   authError,
   onToggle,
+  onOpenSettings,
 }: Props): React.JSX.Element {
   return (
     <View style={styles.container}>
@@ -45,6 +47,13 @@ export function UploadStatusBar({
             testID="upload-toggle"
           />
           <Text style={styles.label}>送信</Text>
+        </View>
+
+        <View style={styles.cell}>
+          <Pressable onPress={onOpenSettings} hitSlop={8}>
+            <Text style={styles.settingsIcon}>⚙</Text>
+          </Pressable>
+          <Text style={styles.label}>設定</Text>
         </View>
       </View>
 
@@ -79,6 +88,7 @@ const styles = StyleSheet.create({
   label: { color: '#7E8895', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   bigValue: { color: '#F3F6FA', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   timeValue: { color: '#F3F6FA', fontSize: 11, fontVariant: ['tabular-nums'] },
+  settingsIcon: { color: '#F3F6FA', fontSize: 18 },
   errorText: {
     marginTop: 6,
     color: '#FF5A5F',

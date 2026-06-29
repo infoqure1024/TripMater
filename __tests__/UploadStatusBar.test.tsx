@@ -15,6 +15,7 @@ const defaultProps = {
   lastSentAt: null,
   authError: null,
   onToggle: jest.fn(),
+  onOpenSettings: jest.fn(),
 };
 
 beforeEach(() => jest.clearAllMocks());

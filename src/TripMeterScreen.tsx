@@ -4,8 +4,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -22,6 +24,7 @@ import { writeCsvFile } from './storage/logExport';
 import DiagnosticsView from './components/DiagnosticsView';
 import TuningPanel from './components/TuningPanel';
 import { UploadStatusBar } from './components/UploadStatusBar';
+import { UploadSettingsPanel } from './components/UploadSettingsPanel';
 import { OdometerConfig } from './core/tripMeter';
 import { clearConfig, loadConfig, saveConfig } from './storage/configStore';
 
@@ -53,6 +56,7 @@ export default function OdometerScreen() {
   const [active, setActive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [tuningVisible, setTuningVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [config, setConfig] = useState<Partial<OdometerConfig>>({});
   const startRef = useRef<number | null>(null);
 
@@ -173,7 +177,30 @@ export default function OdometerScreen() {
         lastSentAt={uploader.lastSentAt}
         authError={uploader.authError}
         onToggle={uploader.toggleUpload}
+        onOpenSettings={() => setSettingsVisible(true)}
       />
+
+      {/* 送信設定モーダル */}
+      <Modal
+        visible={settingsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSettingsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>送信設定</Text>
+              <Pressable onPress={() => setSettingsVisible(false)} hitSlop={8}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView>
+              <UploadSettingsPanel onConfigSaved={() => setSettingsVisible(false)} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* 操作 */}
       <View style={styles.controls}>
@@ -307,4 +334,28 @@ const styles = StyleSheet.create({
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
   },
   debugLink: { color: COLORS.accent, fontSize: 12, fontWeight: '700' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#0F1318',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.border,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
+  modalClose: { color: COLORS.textDim, fontSize: 18 },
 });
