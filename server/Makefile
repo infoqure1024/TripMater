@@ -121,3 +121,6 @@ help:
 	@echo "Migrations:"
 	@echo "  make migrate-up    マイグレーション適用"
 	@echo "  make migrate-down  マイグレーション巻き戻し"
+	@echo ""
+	@echo "Cleanup:"
+	@echo "  make clean         dist/ を削除"
