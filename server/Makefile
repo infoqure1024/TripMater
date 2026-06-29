@@ -1,6 +1,7 @@
-.PHONY: up down build logs ps restart \
-        install dev test lint typecheck format-check \
-        migrate-up migrate-down migrate-status \
+.PHONY: up up-build down down-v build logs logs-server logs-db ps restart \
+        install dev build-ts start test lint typecheck format-check \
+        test-coverage test-contract \
+        migrate-up migrate-down \
         clean help
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -109,6 +110,7 @@ help:
 	@echo "  make format-check  Prettier チェック"
 	@echo "  make test          Jest"
 	@echo "  make test-coverage Jest + カバレッジ"
+	@echo "  make test-contract Jest (contract tests)"
 	@echo ""
 	@echo "Migrations:"
 	@echo "  make migrate-up    マイグレーション適用"
