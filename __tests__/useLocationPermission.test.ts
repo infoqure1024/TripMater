@@ -77,6 +77,8 @@ describe('fine location denied – stops early', () => {
 
     expect(result.fineLocation).toBe('never_ask_again');
     expect(result.canUseLocation).toBe(false);
+    expect(result.backgroundLocation).toBe('denied');
+    expect(result.canUseBackground).toBe(false);
     expect(result.notifications).toBe('denied');
     expect(result.canShowNotifications).toBe(false);
     expect(PermissionsAndroid.request).toHaveBeenCalledTimes(1);
@@ -277,7 +279,22 @@ describe('iOS permission flow', () => {
     expect(result.canUseLocation).toBe(false);
     expect(result.backgroundLocation).toBe('denied');
     expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true); // iOS early-exit hardcodes notifications: 'granted'
     expect(geoAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('whenInUse notDetermined → mapIosResult fallthrough → denied', async () => {
+    geoAuthMock.mockResolvedValueOnce('notDetermined');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('denied');
+    expect(result.canUseLocation).toBe(false);
+    expect(result.backgroundLocation).toBe('denied');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true); // iOS early-exit hardcodes notifications: 'granted'
+    expect(geoAuthMock).toHaveBeenCalledTimes(1);
+    expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
   });
 
   test.each(['disabled', 'restricted'])(
