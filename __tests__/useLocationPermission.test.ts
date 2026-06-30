@@ -1,6 +1,10 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
-import { requestLocationPermissions } from '../src/hooks/useLocationPermission';
+import { renderHook, act } from '@testing-library/react-native';
+import {
+  requestLocationPermissions,
+  useLocationPermission,
+} from '../src/hooks/useLocationPermission';
 
 jest.mock('react-native', () => ({
   PermissionsAndroid: {
@@ -351,5 +355,55 @@ describe('iOS permission flow', () => {
     expect(geoAuthMock).toHaveBeenCalledTimes(2);
     expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
     expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
+  });
+});
+
+describe('useLocationPermission – unmount safety', () => {
+  // NOTE: unmount-during-flight tests are intentionally last in this describe
+  // block (and in the file). react-test-renderer leaves the global renderer
+  // scheduler in a broken state after a component is unmounted while an
+  // update is still in flight, which causes subsequent renderHook() calls in
+  // later tests to return a stale/null result. Keep the "normal" test first.
+  test('updates state normally when mounted through completion', async () => {
+    (PermissionsAndroid.request as jest.Mock).mockResolvedValue('granted');
+
+    const { result } = await renderHook(() => useLocationPermission());
+
+    let requestPromise!: Promise<unknown>;
+    await act(async () => {
+      requestPromise = result.current.requestPermissions();
+      await requestPromise;
+    });
+
+    expect(result.current.isRequesting).toBe(false);
+    expect(result.current.permissionState.fineLocation).toBe('granted');
+  });
+
+  // NOTE: kept as a single test — react-test-renderer leaves the global
+  // renderer scheduler in a broken state after a component is unmounted
+  // while an update is still in flight, which breaks renderHook() in any
+  // later test in this file. Only one such test is safe, and it must be last.
+  test('unmounting before requestPermissions resolves does not throw and still resolves the value', async () => {
+    let resolveRequest!: (value: string) => void;
+    (PermissionsAndroid.request as jest.Mock).mockReturnValueOnce(
+      new Promise<string>(resolve => {
+        resolveRequest = resolve;
+      }),
+    );
+
+    const { result, unmount } = await renderHook(() => useLocationPermission());
+
+    let requestPromise!: Promise<{ fineLocation: string }>;
+    act(() => {
+      requestPromise = result.current.requestPermissions() as Promise<{
+        fineLocation: string;
+      }>;
+    });
+
+    await unmount();
+    resolveRequest('granted');
+    const resolved = await requestPromise;
+
+    expect(resolved.fineLocation).toBe('granted');
   });
 });

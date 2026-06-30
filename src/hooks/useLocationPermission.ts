@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking, PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 
-export type PermissionStatus = 'granted' | 'denied' | 'never_ask_again' | 'pending';
+export type PermissionStatus =
+  | 'granted'
+  | 'denied'
+  | 'never_ask_again'
+  | 'pending';
 
 export interface LocationPermissionState {
   fineLocation: PermissionStatus;
@@ -26,18 +30,31 @@ const INITIAL_STATE: LocationPermissionState = {
 };
 
 function mapIosResult(result: string): PermissionStatus {
-  if (result === 'granted') { return 'granted'; }
-  if (result === 'disabled' || result === 'restricted') { return 'never_ask_again'; }
+  if (result === 'granted') {
+    return 'granted';
+  }
+  if (result === 'disabled' || result === 'restricted') {
+    return 'never_ask_again';
+  }
   return 'denied';
 }
 
 function mapAndroidResult(result: string): PermissionStatus {
-  if (result === PermissionsAndroid.RESULTS.GRANTED) { return 'granted'; }
-  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) { return 'never_ask_again'; }
+  if (result === PermissionsAndroid.RESULTS.GRANTED) {
+    return 'granted';
+  }
+  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+    return 'never_ask_again';
+  }
   return 'denied';
 }
 
-function buildState(partial: Omit<LocationPermissionState, 'canUseLocation' | 'canUseBackground' | 'canShowNotifications'>): LocationPermissionState {
+function buildState(
+  partial: Omit<
+    LocationPermissionState,
+    'canUseLocation' | 'canUseBackground' | 'canShowNotifications'
+  >,
+): LocationPermissionState {
   return {
     ...partial,
     canUseLocation: partial.fineLocation === 'granted',
@@ -63,7 +80,11 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
     const whenInUseRaw = await Geolocation.requestAuthorization('whenInUse');
     const fineLocation = mapIosResult(whenInUseRaw);
     if (fineLocation !== 'granted') {
-      return buildState({ fineLocation, backgroundLocation: fineLocation, notifications: 'granted' });
+      return buildState({
+        fineLocation,
+        backgroundLocation: fineLocation,
+        notifications: 'granted',
+      });
     }
     // Step 2: Upgrade to "Always" for background location continuation
     const alwaysRaw = await Geolocation.requestAuthorization('always');
@@ -147,36 +168,49 @@ export function useLocationPermission() {
   const [isRequesting, setIsRequesting] = useState(false);
   const isRequestingRef = useRef(false);
   const permissionStateRef = useRef(permissionState);
-  useEffect(() => { permissionStateRef.current = permissionState; }, [permissionState]);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    permissionStateRef.current = permissionState;
+  }, [permissionState]);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
-  const requestPermissions = useCallback(async (): Promise<LocationPermissionState> => {
-    if (isRequestingRef.current) { return permissionStateRef.current; }
-    isRequestingRef.current = true;
-    setIsRequesting(true);
-    try {
-      const result = await requestLocationPermissions();
-      setPermissionState(result);
-      return result;
-    } finally {
-      isRequestingRef.current = false;
-      setIsRequesting(false);
-    }
-  }, []);
+  const requestPermissions =
+    useCallback(async (): Promise<LocationPermissionState> => {
+      if (isRequestingRef.current) {
+        return permissionStateRef.current;
+      }
+      isRequestingRef.current = true;
+      setIsRequesting(true);
+      try {
+        const result = await requestLocationPermissions();
+        if (mountedRef.current) {
+          setPermissionState(result);
+        }
+        return result;
+      } finally {
+        isRequestingRef.current = false;
+        if (mountedRef.current) {
+          setIsRequesting(false);
+        }
+      }
+    }, []);
 
   const promptBackgroundSettings = useCallback(() => {
-    const message = Platform.OS === 'ios'
-      ? '「設定 > プライバシーとセキュリティ > 位置情報サービス > trip meter > 常に許可」を選択してください。\n' +
-        'この設定がないとロック画面・別アプリ使用中の計測が停止します。'
-      : '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
-        'この設定がないとロック画面・別アプリ使用中の計測が停止します。';
-    Alert.alert(
-      'バックグラウンド位置情報',
-      message,
-      [
-        { text: 'キャンセル', style: 'cancel' },
-        { text: '設定を開く', onPress: openAppSettings },
-      ],
-    );
+    const message =
+      Platform.OS === 'ios'
+        ? '「設定 > プライバシーとセキュリティ > 位置情報サービス > trip meter > 常に許可」を選択してください。\n' +
+          'この設定がないとロック画面・別アプリ使用中の計測が停止します。'
+        : '「設定 > アプリ > 位置情報 > 常に許可」を選択してください。\n' +
+          'この設定がないとロック画面・別アプリ使用中の計測が停止します。';
+    Alert.alert('バックグラウンド位置情報', message, [
+      { text: 'キャンセル', style: 'cancel' },
+      { text: '設定を開く', onPress: openAppSettings },
+    ]);
   }, []);
 
   return {
