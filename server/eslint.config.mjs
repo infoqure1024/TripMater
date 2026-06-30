@@ -22,6 +22,9 @@ const sharedRules = {
 
 export default [
   {
+    ignores: ['dist/**', 'coverage/**', 'scripts/**'],
+  },
+  {
     files: ['src/**/*.ts'],
     languageOptions: {
       ...sharedLanguageOptions,
@@ -49,6 +52,7 @@ export default [
         process: 'readonly',
         describe: 'readonly',
         it: 'readonly',
+        test: 'readonly',
         expect: 'readonly',
         beforeEach: 'readonly',
         afterEach: 'readonly',
