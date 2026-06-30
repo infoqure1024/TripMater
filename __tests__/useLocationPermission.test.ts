@@ -6,7 +6,8 @@ jest.mock('react-native', () => ({
   PermissionsAndroid: {
     PERMISSIONS: {
       ACCESS_FINE_LOCATION: 'android.permission.ACCESS_FINE_LOCATION',
-      ACCESS_BACKGROUND_LOCATION: 'android.permission.ACCESS_BACKGROUND_LOCATION',
+      ACCESS_BACKGROUND_LOCATION:
+        'android.permission.ACCESS_BACKGROUND_LOCATION',
       ACCESS_COARSE_LOCATION: 'android.permission.ACCESS_COARSE_LOCATION',
     },
     RESULTS: {
@@ -64,7 +65,9 @@ describe('fine location denied – stops early', () => {
   });
 
   test('returns canUseLocation=false and notifications=denied when fine location is never_ask_again', async () => {
-    (PermissionsAndroid.request as jest.Mock).mockResolvedValueOnce('never_ask_again');
+    (PermissionsAndroid.request as jest.Mock).mockResolvedValueOnce(
+      'never_ask_again',
+    );
 
     const result = await requestLocationPermissions();
 
@@ -80,8 +83,8 @@ describe('background location – API 29+ separate request', () => {
   test('requests ACCESS_BACKGROUND_LOCATION after fine on API 29', async () => {
     setAndroidVersion(29);
     (PermissionsAndroid.request as jest.Mock)
-      .mockResolvedValueOnce('granted')   // fine
-      .mockResolvedValueOnce('granted');  // background
+      .mockResolvedValueOnce('granted') // fine
+      .mockResolvedValueOnce('granted'); // background
 
     const result = await requestLocationPermissions();
 
@@ -135,9 +138,9 @@ describe('background location – API 29+ separate request', () => {
   test('still requests POST_NOTIFICATIONS on API 33 even when background is denied', async () => {
     setAndroidVersion(33);
     (PermissionsAndroid.request as jest.Mock)
-      .mockResolvedValueOnce('granted')          // fine
-      .mockResolvedValueOnce('denied')           // background denied
-      .mockResolvedValueOnce('granted');         // notifications
+      .mockResolvedValueOnce('granted') // fine
+      .mockResolvedValueOnce('denied') // background denied
+      .mockResolvedValueOnce('granted'); // notifications
 
     const result = await requestLocationPermissions();
 
@@ -245,8 +248,8 @@ describe('iOS permission flow', () => {
 
   test('full grant: whenInUse then always → canUseLocation and canUseBackground true', async () => {
     geoAuthMock
-      .mockResolvedValueOnce('granted')   // whenInUse
-      .mockResolvedValueOnce('granted');  // always
+      .mockResolvedValueOnce('granted') // whenInUse
+      .mockResolvedValueOnce('granted'); // always
 
     const result = await requestLocationPermissions();
 
@@ -280,7 +283,11 @@ describe('iOS permission flow', () => {
 
     expect(result.fineLocation).toBe('never_ask_again');
     expect(result.canUseLocation).toBe(false);
+    expect(result.backgroundLocation).toBe('never_ask_again');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true);
     expect(geoAuthMock).toHaveBeenCalledTimes(1);
+    expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
   });
 
   test('whenInUse restricted (parental control) → maps to never_ask_again', async () => {
@@ -290,7 +297,11 @@ describe('iOS permission flow', () => {
 
     expect(result.fineLocation).toBe('never_ask_again');
     expect(result.canUseLocation).toBe(false);
+    expect(result.backgroundLocation).toBe('never_ask_again');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true);
     expect(geoAuthMock).toHaveBeenCalledTimes(1);
+    expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
   });
 
   test('always denied after whenInUse granted → foreground-only, canUseBackground false', async () => {
@@ -306,5 +317,39 @@ describe('iOS permission flow', () => {
     expect(result.canUseBackground).toBe(false);
     expect(result.canShowNotifications).toBe(true);
     expect(geoAuthMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('always disabled after whenInUse granted → backgroundLocation never_ask_again', async () => {
+    geoAuthMock
+      .mockResolvedValueOnce('granted')
+      .mockResolvedValueOnce('disabled');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('granted');
+    expect(result.canUseLocation).toBe(true);
+    expect(result.backgroundLocation).toBe('never_ask_again');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true);
+    expect(geoAuthMock).toHaveBeenCalledTimes(2);
+    expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
+    expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
+  });
+
+  test('always restricted after whenInUse granted → backgroundLocation never_ask_again', async () => {
+    geoAuthMock
+      .mockResolvedValueOnce('granted')
+      .mockResolvedValueOnce('restricted');
+
+    const result = await requestLocationPermissions();
+
+    expect(result.fineLocation).toBe('granted');
+    expect(result.canUseLocation).toBe(true);
+    expect(result.backgroundLocation).toBe('never_ask_again');
+    expect(result.canUseBackground).toBe(false);
+    expect(result.canShowNotifications).toBe(true);
+    expect(geoAuthMock).toHaveBeenCalledTimes(2);
+    expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
+    expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
   });
 });
