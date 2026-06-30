@@ -280,33 +280,22 @@ describe('iOS permission flow', () => {
     expect(geoAuthMock).toHaveBeenCalledTimes(1);
   });
 
-  test('whenInUse disabled (location services off) → maps to never_ask_again', async () => {
-    geoAuthMock.mockResolvedValueOnce('disabled');
+  test.each(['disabled', 'restricted'])(
+    'whenInUse %s → maps to never_ask_again',
+    async raw => {
+      geoAuthMock.mockResolvedValueOnce(raw);
 
-    const result = await requestLocationPermissions();
+      const result = await requestLocationPermissions();
 
-    expect(result.fineLocation).toBe('never_ask_again');
-    expect(result.canUseLocation).toBe(false);
-    expect(result.backgroundLocation).toBe('never_ask_again');
-    expect(result.canUseBackground).toBe(false);
-    expect(result.canShowNotifications).toBe(true);
-    expect(geoAuthMock).toHaveBeenCalledTimes(1);
-    expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
-  });
-
-  test('whenInUse restricted (parental control) → maps to never_ask_again', async () => {
-    geoAuthMock.mockResolvedValueOnce('restricted');
-
-    const result = await requestLocationPermissions();
-
-    expect(result.fineLocation).toBe('never_ask_again');
-    expect(result.canUseLocation).toBe(false);
-    expect(result.backgroundLocation).toBe('never_ask_again');
-    expect(result.canUseBackground).toBe(false);
-    expect(result.canShowNotifications).toBe(true);
-    expect(geoAuthMock).toHaveBeenCalledTimes(1);
-    expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
-  });
+      expect(result.fineLocation).toBe('never_ask_again');
+      expect(result.canUseLocation).toBe(false);
+      expect(result.backgroundLocation).toBe('never_ask_again');
+      expect(result.canUseBackground).toBe(false);
+      expect(result.canShowNotifications).toBe(true);
+      expect(geoAuthMock).toHaveBeenCalledTimes(1);
+      expect(geoAuthMock).toHaveBeenCalledWith('whenInUse');
+    },
+  );
 
   test('always denied after whenInUse granted → foreground-only, canUseBackground false', async () => {
     geoAuthMock
@@ -323,39 +312,23 @@ describe('iOS permission flow', () => {
     expect(geoAuthMock).toHaveBeenCalledTimes(2);
   });
 
-  test('always disabled after whenInUse granted → backgroundLocation never_ask_again', async () => {
-    geoAuthMock
-      .mockResolvedValueOnce('granted')
-      .mockResolvedValueOnce('disabled');
+  test.each(['disabled', 'restricted'])(
+    'always %s after whenInUse granted → backgroundLocation never_ask_again',
+    async raw => {
+      geoAuthMock.mockResolvedValueOnce('granted').mockResolvedValueOnce(raw);
 
-    const result = await requestLocationPermissions();
+      const result = await requestLocationPermissions();
 
-    expect(result.fineLocation).toBe('granted');
-    expect(result.canUseLocation).toBe(true);
-    expect(result.backgroundLocation).toBe('never_ask_again');
-    expect(result.canUseBackground).toBe(false);
-    expect(result.canShowNotifications).toBe(true);
-    expect(geoAuthMock).toHaveBeenCalledTimes(2);
-    expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
-    expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
-  });
-
-  test('always restricted after whenInUse granted → backgroundLocation never_ask_again', async () => {
-    geoAuthMock
-      .mockResolvedValueOnce('granted')
-      .mockResolvedValueOnce('restricted');
-
-    const result = await requestLocationPermissions();
-
-    expect(result.fineLocation).toBe('granted');
-    expect(result.canUseLocation).toBe(true);
-    expect(result.backgroundLocation).toBe('never_ask_again');
-    expect(result.canUseBackground).toBe(false);
-    expect(result.canShowNotifications).toBe(true);
-    expect(geoAuthMock).toHaveBeenCalledTimes(2);
-    expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
-    expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
-  });
+      expect(result.fineLocation).toBe('granted');
+      expect(result.canUseLocation).toBe(true);
+      expect(result.backgroundLocation).toBe('never_ask_again');
+      expect(result.canUseBackground).toBe(false);
+      expect(result.canShowNotifications).toBe(true);
+      expect(geoAuthMock).toHaveBeenCalledTimes(2);
+      expect(geoAuthMock).toHaveBeenNthCalledWith(1, 'whenInUse');
+      expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
+    },
+  );
 });
 
 describe('useLocationPermission – unmount safety', () => {
