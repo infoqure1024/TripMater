@@ -27,6 +27,8 @@ export class MetricsStore {
   private rejectedEnvelopes = 0;
   private errors4xx = 0;
   private errors5xx = 0;
+  // Counts ingest requests processed after auth (recordIngest + recordRejectedEnvelope),
+  // regardless of whether the DB write succeeded or failed.
   private requestCount = 0;
 
   constructor() {
