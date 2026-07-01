@@ -495,77 +495,6 @@ describeDb('統合テスト (real PostgreSQL)', () => {
     });
   });
 
-  // ── L. 追加カバレッジ (Issue #99) ───────────────────────────────────────────
-
-  describe('L-1. deviceId 一致時の deviceMismatch=0', () => {
-    it('samples[].deviceId がトークンのデバイス ID と一致する場合 deviceMismatch は 0', async () => {
-      // Arrange
-      const deviceId = await makeDevice();
-      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
-      // Provide the correct deviceId in the sample (matches token's device)
-      const sample = makeSample({ deviceId });
-
-      // Act
-      const result = await ingest(app, token, [sample]);
-
-      // Assert: mismatch branch is NOT taken → deviceMismatch stays 0
-      expect(result.deviceMismatch).toBe(0);
-      expect(result.inserted).toBe(1);
-      expect(result.received).toBe(1);
-    });
-  });
-
-  describe('L-2. schemaVersion !== 1 → received: 0', () => {
-    it('schemaVersion が 1 以外の場合は 200 + received: 0 を返す', async () => {
-      // Arrange
-      const deviceId = await makeDevice();
-      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
-
-      // Act — send an unknown schema version
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/v1/locations',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        payload: { schemaVersion: 2, samples: [makeSample()] },
-      });
-
-      // Assert: accepted-and-dropped envelope (EMPTY_ENVELOPE)
-      expect(res.statusCode).toBe(200);
-      const body = res.json<IngestResponse>();
-      expect(body.received).toBe(0);
-      expect(body.inserted).toBe(0);
-      expect(body.duplicates).toBe(0);
-      expect(body.dropped).toBe(0);
-    });
-  });
-
-  describe('L-3. 1000 件超 → 413', () => {
-    it('samples が 1001 件の場合は 413 を返す', async () => {
-      // Arrange
-      const deviceId = await makeDevice();
-      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
-      // Generate 1001 samples — just over MAX_SAMPLES (1000)
-      const samples = Array.from({ length: 1001 }, () => makeSample());
-
-      // Act
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/v1/locations',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        payload: { schemaVersion: 1, samples },
-      });
-
-      // Assert: 413 PAYLOAD_TOO_LARGE before any DB writes
-      expect(res.statusCode).toBe(413);
-    });
-  });
-
   // ── H. バックプレッシャー (503 + Retry-After) ────────────────────────────────
 
   describe('H. バックプレッシャー: maxInflightRequests=0 → 503 + Retry-After', () => {
@@ -606,6 +535,82 @@ describeDb('統合テスト (real PostgreSQL)', () => {
       } finally {
         await limitedApp.close(); // ends limitedPool via onClose
       }
+    });
+  });
+
+  // ── I. 追加カバレッジ (Issue #99) ───────────────────────────────────────────
+
+  describe('I-1. deviceId 一致時の deviceMismatch=0', () => {
+    it('samples[].deviceId がトークンのデバイス ID と一致する場合 deviceMismatch は 0', async () => {
+      // Arrange
+      const deviceId = await makeDevice();
+      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
+      // Provide the correct deviceId in the sample (matches token's device)
+      const sample = makeSample({ deviceId });
+
+      // Act
+      const result = await ingest(app, token, [sample]);
+
+      // Assert: mismatch branch is NOT taken → deviceMismatch stays 0
+      expect(result.deviceMismatch).toBe(0);
+      expect(result.inserted).toBe(1);
+      expect(result.received).toBe(1);
+      expect(result.duplicates).toBe(0);
+      expect(result.dropped).toBe(0);
+      expect(result.received).toBe(result.inserted + result.duplicates + result.dropped);
+    });
+  });
+
+  describe('I-2. schemaVersion !== 1 → received: 0', () => {
+    it('schemaVersion が 1 以外の場合は 200 + received: 0 を返す', async () => {
+      // Arrange
+      const deviceId = await makeDevice();
+      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
+
+      // Act — send an unknown schema version
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/locations',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        payload: { schemaVersion: 2, samples: [makeSample()] },
+      });
+
+      // Assert: accepted-and-dropped envelope (EMPTY_ENVELOPE)
+      expect(res.statusCode).toBe(200);
+      const body = res.json<IngestResponse>();
+      expect(body.received).toBe(0);
+      expect(body.inserted).toBe(0);
+      expect(body.duplicates).toBe(0);
+      expect(body.dropped).toBe(0);
+      expect(body.deviceMismatch).toBe(0);
+      expect(body.schemaVersion).toBe(1); // EMPTY_ENVELOPE always returns schemaVersion: 1
+    });
+  });
+
+  describe('I-3. 1000 件超 → 413', () => {
+    it('samples が 1001 件の場合は 413 を返す', async () => {
+      // Arrange
+      const deviceId = await makeDevice();
+      const { plaintext: token } = await createToken(app, ADMIN_KEY, deviceId);
+      // Generate 1001 samples — just over MAX_SAMPLES (1000)
+      const samples = Array.from({ length: 1001 }, () => makeSample());
+
+      // Act
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/locations',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        payload: { schemaVersion: 1, samples },
+      });
+
+      // Assert: 413 PAYLOAD_TOO_LARGE before any DB writes
+      expect(res.statusCode).toBe(413);
     });
   });
 });
