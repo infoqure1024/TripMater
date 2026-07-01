@@ -39,6 +39,13 @@ describe('MetricsStore', () => {
     expect(snap.uptimeMs).toBeGreaterThanOrEqual(0);
   });
 
+  it('uptimeMs increases monotonically between two snapshot() calls', async () => {
+    const snap1 = store.snapshot();
+    await new Promise((r) => setTimeout(r, 5));
+    const snap2 = store.snapshot();
+    expect(snap2.uptimeMs).toBeGreaterThan(snap1.uptimeMs);
+  });
+
   // ── recordIngest ──────────────────────────────────────────────────────────
 
   it('accumulates ingest counts across multiple calls', () => {
@@ -77,6 +84,13 @@ describe('MetricsStore', () => {
     expect(snap.requestCount).toBe(2);
   });
 
+  it('recordRejectedEnvelope does not affect ingest.received', () => {
+    store.recordRejectedEnvelope();
+    store.recordRejectedEnvelope();
+
+    expect(store.snapshot().ingest.received).toBe(0);
+  });
+
   // ── recordError4xx / recordError5xx ───────────────────────────────────────
 
   it('increments errors4xx counter', () => {
@@ -113,6 +127,24 @@ describe('MetricsStore', () => {
 
     const snap2 = store.snapshot();
     expect(snap2.ingest.received).toBe(5);
+  });
+
+  it('snapshot returns a deep copy — no reference leak through ingest nested object', () => {
+    store.recordIngest(makeCounts({ received: 7, inserted: 7 }));
+
+    const snap = store.snapshot();
+    // Mutate every field of the nested ingest object
+    snap.ingest.received = 0;
+    snap.ingest.inserted = 0;
+    snap.ingest.duplicates = 99;
+    snap.ingest.dropped = 99;
+    snap.ingest.deviceMismatch = 99;
+
+    // Internal state must be unaffected
+    const snap2 = store.snapshot();
+    expect(snap2.ingest.received).toBe(7);
+    expect(snap2.ingest.inserted).toBe(7);
+    expect(snap2.ingest.duplicates).toBe(0);
   });
 
   // ── reset ─────────────────────────────────────────────────────────────────

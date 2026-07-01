@@ -81,41 +81,56 @@ describe('PoisonPillDetector', () => {
 
   // ── prune: stale ID entries ───────────────────────────────────────────────
 
-  it('resets ID count after the window elapses (simulated by tiny window)', () => {
-    // Use a 1ms window so entries expire immediately.
-    const d = new PoisonPillDetector(1, 3);
-    const id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  it('resets ID count after the window elapses', () => {
+    jest.useFakeTimers();
+    try {
+      const d = new PoisonPillDetector(1000, 3);
+      const id = 'bbbbbbbb-0000-0000-0000-000000000001';
 
-    d.observeIds([id]); // count=1 in window[0]
-    d.observeIds([id]); // count=2 in window[0]
+      d.observeIds([id]); // count=1 in window
+      d.observeIds([id]); // count=2 in window
 
-    // Wait for the window to expire.
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        // observeIds after window expiry resets the entry → count=1 (not poisoned)
-        const result = d.observeIds([id]);
-        expect(result).toEqual([]);
-        resolve();
-      }, 5);
-    });
+      jest.advanceTimersByTime(1001); // advance past the 1000ms window
+
+      // observeIds after window expiry resets the entry → count=1 (not poisoned)
+      const result = d.observeIds([id]);
+      expect(result).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('prune() removes entries older than the window', () => {
-    // 1ms window so entries age out quickly.
-    const d = new PoisonPillDetector(1, 3);
-    const id = 'cccccccc-0000-0000-0000-000000000001';
+    jest.useFakeTimers();
+    try {
+      const d = new PoisonPillDetector(1000, 3);
+      const id = 'cccccccc-0000-0000-0000-000000000001';
 
-    d.observeIds([id]); // populate the map
+      d.observeIds([id]); // populate the map
 
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        d.prune(); // should remove the entry
-        // Subsequent observeIds starts fresh: count=1 → not poisoned
-        const result = d.observeIds([id]);
-        expect(result).toEqual([]);
-        resolve();
-      }, 5);
-    });
+      jest.advanceTimersByTime(1001); // advance past the 1000ms window
+
+      d.prune(); // should remove the entry
+      // Subsequent observeIds starts fresh: count=1 → not poisoned
+      const result = d.observeIds([id]);
+      expect(result).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // ── observeIds: same-batch duplicate IDs ─────────────────────────────────
+
+  it('counts duplicate IDs within the same batch as separate observations', () => {
+    // observeIds(['id-a', 'id-a']) with threshold=2:
+    // first 'id-a' → count=1; second 'id-a' → count=2 >= threshold → poisoned.
+    // Duplicates within one request are NOT collapsed — they represent repeated
+    // attempts to ingest the same sample in a single call.
+    const d = new PoisonPillDetector(60_000, 2);
+    const id = 'eeeeeeee-0000-0000-0000-000000000001';
+
+    const result = d.observeIds([id, id]);
+    expect(result).toContain(id);
   });
 
   // ── record4xx / recordSuccess ─────────────────────────────────────────────
