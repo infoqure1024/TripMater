@@ -39,11 +39,23 @@ describe('MetricsStore', () => {
     expect(snap.uptimeMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('uptimeMs increases monotonically between two snapshot() calls', async () => {
-    const snap1 = store.snapshot();
-    await new Promise((r) => setTimeout(r, 5));
-    const snap2 = store.snapshot();
-    expect(snap2.uptimeMs).toBeGreaterThan(snap1.uptimeMs);
+  it('uptimeMs increases monotonically between two snapshot() calls', () => {
+    // Fake timers so this is deterministic instead of relying on a real setTimeout sleep.
+    // The store under test must be constructed *after* the fake clock is installed, since
+    // MetricsStore captures Date.now() in its constructor.
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(0);
+      const clockedStore = new MetricsStore();
+      const snap1 = clockedStore.snapshot();
+
+      jest.setSystemTime(5);
+      const snap2 = clockedStore.snapshot();
+
+      expect(snap2.uptimeMs).toBeGreaterThan(snap1.uptimeMs);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   // ── recordIngest ──────────────────────────────────────────────────────────
