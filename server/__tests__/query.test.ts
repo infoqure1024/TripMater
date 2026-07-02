@@ -366,6 +366,41 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json<ErrorBody>().error.code).toBe('SERVICE_UNAVAILABLE');
   });
+
+  it('returns all device groups as an array when admin passes ?all=true (session_id collision)', async () => {
+    app = makeApp(
+      makePool([
+        {
+          rows: [sessionRow({ device_id: DEVICE_ID }), sessionRow({ device_id: OTHER_DEVICE_ID })],
+        },
+      ])
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=true`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionsBody>();
+    expect(body.sessions).toHaveLength(2);
+    expect(body.total).toBe(2);
+    expect(body.sessions.map((s) => s.deviceId).sort()).toEqual(
+      [DEVICE_ID, OTHER_DEVICE_ID].sort()
+    );
+  });
+
+  it('ignores ?all=true for device tokens (still returns a single flat object)', async () => {
+    app = makeApp(makePool([{ rows: [validTokenRow(DEVICE_ID)] }, { rows: [sessionRow()] }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=true`,
+      headers: deviceHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionSummary>();
+    expect(body.sessionId).toBe(SESSION_ID);
+    expect(body.deviceId).toBe(DEVICE_ID);
+  });
 });
 
 // ── GET /api/v1/sessions/:sessionId/samples ──────────────────────────────────
