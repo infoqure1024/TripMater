@@ -12,7 +12,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.ts\" \"__tests__/**/*.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --project tsconfig.check.json",
     "test": "jest",
     "migrate:up": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
