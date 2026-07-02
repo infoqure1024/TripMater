@@ -87,6 +87,7 @@ interface SessionSummary {
 interface SessionsBody {
   sessions: SessionSummary[];
   total: number;
+  truncated?: boolean;
 }
 
 interface SampleItem {
@@ -384,9 +385,30 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     const body = res.json<SessionsBody>();
     expect(body.sessions).toHaveLength(2);
     expect(body.total).toBe(2);
+    expect(body.truncated).toBe(false);
     expect(body.sessions.map((s) => s.deviceId).sort()).toEqual(
       [DEVICE_ID, OTHER_DEVICE_ID].sort()
     );
+  });
+
+  it('caps admin ?all=true at 100 rows and sets truncated:true when more groups exist (Issue #121)', async () => {
+    // 101 rows returned by the DB (LIMIT 101) simulates a pathological session_id collision
+    // across many devices. The route must trim to 100 and flag truncation rather than
+    // returning an unbounded response.
+    const rows = Array.from({ length: 101 }, (_, i) =>
+      sessionRow({ device_id: `device-${i.toString().padStart(3, '0')}` })
+    );
+    app = makeApp(makePool([{ rows }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=true`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionsBody>();
+    expect(body.sessions).toHaveLength(100);
+    expect(body.total).toBe(100);
+    expect(body.truncated).toBe(true);
   });
 
   it('ignores ?all=true for device tokens (still returns a single flat object)', async () => {
