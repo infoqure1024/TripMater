@@ -4,7 +4,7 @@ export interface BackoffConfig {
   maxRetries: number;
   baseDelayMs: number;
   maxDelayMs: number;
-  jitterFactor: number;  // fraction of delay added as ±random jitter, e.g. 0.2 = ±20%
+  jitterFactor: number; // fraction of delay added as ±random jitter, e.g. 0.2 = ±20%
 }
 
 export const DEFAULT_BACKOFF_CONFIG: BackoffConfig = {
@@ -47,8 +47,16 @@ export class RetryController {
 
   /** Feed upload events from BatchUploader.setListener into this method. */
   handleEvent(event: UploadEvent): void {
-    if (this.destroyed) { return; }
+    if (this.destroyed) {
+      return;
+    }
     if (event.type === 'success') {
+      this.resetRetry();
+    } else if (event.type === 'dead_letter') {
+      // The poison-pill batch was evicted (Issue #49); BatchUploader already
+      // continues its flush loop for subsequent batches within the same
+      // call. Treat like a recovery signal so backoff doesn't stay elevated
+      // for whatever batch comes next.
       this.resetRetry();
     } else if (event.type === 'failure') {
       const { status, retryable } = event.result;
@@ -69,10 +77,14 @@ export class RetryController {
 
   /** Call when NetInfo signals connectivity restored. */
   onConnectivityRestored(): void {
-    if (this.destroyed) { return; }
+    if (this.destroyed) {
+      return;
+    }
     this.cancelPendingRetry();
     this.retryCount = 0;
-    this.uploader.flushNow().catch(() => { /* flush errors handled by BatchUploader */ });
+    this.uploader.flushNow().catch(() => {
+      /* flush errors handled by BatchUploader */
+    });
   }
 
   /** Call on service teardown to cancel any pending retry timer. */
@@ -81,7 +93,9 @@ export class RetryController {
     this.cancelPendingRetry();
   }
 
-  get pendingRetryCount(): number { return this.retryCount; }
+  get pendingRetryCount(): number {
+    return this.retryCount;
+  }
 
   private scheduleRetry(): void {
     if (this.retryCount >= this.fullConfig.maxRetries) {
@@ -94,7 +108,9 @@ export class RetryController {
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.retryCount++;
-      this.uploader.flushNow().catch(() => { /* handled by BatchUploader */ });
+      this.uploader.flushNow().catch(() => {
+        /* handled by BatchUploader */
+      });
     }, delay);
   }
 

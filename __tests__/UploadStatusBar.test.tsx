@@ -14,6 +14,7 @@ const defaultProps = {
   pendingCount: 0,
   lastSentAt: null,
   authError: null,
+  deadLetterCount: 0,
   onToggle: jest.fn(),
   onOpenSettings: jest.fn(),
 };
@@ -78,6 +79,20 @@ describe('UploadStatusBar – auth error', () => {
   test('shows generic error message for non-auth server error', async () => {
     await render(<UploadStatusBar {...defaultProps} authError={500} />);
     expect(screen.getByTestId('auth-error').props.children).toContain('500');
+  });
+});
+
+describe('UploadStatusBar – dead letter count', () => {
+  test('does not render dead-letter element when deadLetterCount is 0', async () => {
+    await render(<UploadStatusBar {...defaultProps} deadLetterCount={0} />);
+    expect(screen.queryByTestId('dead-letter-count')).toBeNull();
+  });
+
+  test('shows dead-letter count when greater than 0', async () => {
+    await render(<UploadStatusBar {...defaultProps} deadLetterCount={7} />);
+    expect(screen.getByTestId('dead-letter-count').props.children).toContain(
+      '7',
+    );
   });
 });
 

@@ -39,9 +39,9 @@ describe('calculateBackoffMs', () => {
   });
 
   test('jitter adds ±jitterFactor × clamped delay', () => {
-    const maxRandom = () => 1;   // max positive jitter → +20%
-    const minRandom = () => 0;   // max negative jitter → -20%
-    const noRandom  = () => 0.5; // zero jitter
+    const maxRandom = () => 1; // max positive jitter → +20%
+    const minRandom = () => 0; // max negative jitter → -20%
+    const noRandom = () => 0.5; // zero jitter
     const base = 1000;
     expect(calculateBackoffMs(0, cfg, noRandom)).toBe(base);
     expect(calculateBackoffMs(0, cfg, maxRandom)).toBe(Math.round(base * 1.2));
@@ -50,14 +50,20 @@ describe('calculateBackoffMs', () => {
 
   test('result is never negative', () => {
     const extremeJitter: BackoffConfig = { ...cfg, jitterFactor: 2.0 };
-    expect(calculateBackoffMs(0, extremeJitter, () => 0)).toBeGreaterThanOrEqual(0);
+    expect(
+      calculateBackoffMs(0, extremeJitter, () => 0),
+    ).toBeGreaterThanOrEqual(0);
   });
 
   test('result never exceeds maxDelayMs even with maximum positive jitter', () => {
     const maxRandom = () => 1; // maximum positive jitter
     // At high attempts, clamped=maxDelayMs; positive jitter should not push beyond it
-    expect(calculateBackoffMs(20, cfg, maxRandom)).toBeLessThanOrEqual(cfg.maxDelayMs);
-    expect(calculateBackoffMs(0, cfg, maxRandom)).toBeLessThanOrEqual(cfg.maxDelayMs);
+    expect(calculateBackoffMs(20, cfg, maxRandom)).toBeLessThanOrEqual(
+      cfg.maxDelayMs,
+    );
+    expect(calculateBackoffMs(0, cfg, maxRandom)).toBeLessThanOrEqual(
+      cfg.maxDelayMs,
+    );
   });
 });
 
@@ -65,7 +71,9 @@ describe('calculateBackoffMs', () => {
 // RetryController helpers
 // ---------------------------------------------------------------------------
 function makeUploader() {
-  return { flushNow: jest.fn<Promise<void>, []>().mockResolvedValue(undefined) };
+  return {
+    flushNow: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+  };
 }
 
 function makeController(
@@ -73,18 +81,30 @@ function makeController(
   config: Partial<BackoffConfig> = {},
   onAuthError?: (status: number) => void,
 ) {
-  return new RetryController(uploader, { baseDelayMs: 100, maxDelayMs: 800, jitterFactor: 0, ...config }, onAuthError);
+  return new RetryController(
+    uploader,
+    { baseDelayMs: 100, maxDelayMs: 800, jitterFactor: 0, ...config },
+    onAuthError,
+  );
 }
 
-function successEvent(): UploadEvent { return { type: 'success', count: 1 }; }
+function successEvent(): UploadEvent {
+  return { type: 'success', count: 1 };
+}
 function serverErrorEvent(): UploadEvent {
-  return { type: 'failure', result: { ok: false, status: 500, retryable: true } };
+  return {
+    type: 'failure',
+    result: { ok: false, status: 500, retryable: true },
+  };
 }
 function authErrorEvent(status: 401 | 403): UploadEvent {
   return { type: 'failure', result: { ok: false, status, retryable: false } };
 }
 function clientErrorEvent(): UploadEvent {
-  return { type: 'failure', result: { ok: false, status: 400, retryable: false } };
+  return {
+    type: 'failure',
+    result: { ok: false, status: 400, retryable: false },
+  };
 }
 function networkErrorEvent(): UploadEvent {
   return { type: 'error', error: new Error('network down') };
@@ -116,10 +136,14 @@ describe('retry scheduling', () => {
 
   test('backoff delay doubles on each retry attempt', async () => {
     const uploader = makeUploader();
-    const ctrl = makeController(uploader, { baseDelayMs: 100, maxRetries: 5, jitterFactor: 0 });
-    ctrl.handleEvent(serverErrorEvent());   // attempt 0 → 100ms
+    const ctrl = makeController(uploader, {
+      baseDelayMs: 100,
+      maxRetries: 5,
+      jitterFactor: 0,
+    });
+    ctrl.handleEvent(serverErrorEvent()); // attempt 0 → 100ms
     await jest.advanceTimersByTimeAsync(100);
-    ctrl.handleEvent(serverErrorEvent());   // attempt 1 → 200ms
+    ctrl.handleEvent(serverErrorEvent()); // attempt 1 → 200ms
     expect(uploader.flushNow).toHaveBeenCalledTimes(1);
     await jest.advanceTimersByTimeAsync(200);
     expect(uploader.flushNow).toHaveBeenCalledTimes(2);
@@ -151,7 +175,7 @@ describe('retry scheduling', () => {
     const uploader = makeUploader();
     const ctrl = makeController(uploader, { baseDelayMs: 5000, maxRetries: 3 });
     ctrl.handleEvent(serverErrorEvent()); // schedules retry in 5000ms
-    ctrl.handleEvent(successEvent());     // should cancel the timer
+    ctrl.handleEvent(successEvent()); // should cancel the timer
     await jest.advanceTimersByTimeAsync(5000);
     expect(uploader.flushNow).not.toHaveBeenCalled();
     expect(ctrl.pendingRetryCount).toBe(0);
@@ -168,7 +192,11 @@ describe('auth error handling', () => {
   test('401 fires onAuthError callback and does not schedule retry', async () => {
     const uploader = makeUploader();
     const onAuthError = jest.fn();
-    const ctrl = makeController(uploader, { baseDelayMs: 100, maxRetries: 5 }, onAuthError);
+    const ctrl = makeController(
+      uploader,
+      { baseDelayMs: 100, maxRetries: 5 },
+      onAuthError,
+    );
     ctrl.handleEvent(authErrorEvent(401));
     expect(onAuthError).toHaveBeenCalledWith(401);
     await jest.advanceTimersByTimeAsync(200);
@@ -178,7 +206,11 @@ describe('auth error handling', () => {
   test('403 fires onAuthError callback and does not schedule retry', async () => {
     const uploader = makeUploader();
     const onAuthError = jest.fn();
-    const ctrl = makeController(uploader, { baseDelayMs: 100, maxRetries: 5 }, onAuthError);
+    const ctrl = makeController(
+      uploader,
+      { baseDelayMs: 100, maxRetries: 5 },
+      onAuthError,
+    );
     ctrl.handleEvent(authErrorEvent(403));
     expect(onAuthError).toHaveBeenCalledWith(403);
     await jest.advanceTimersByTimeAsync(200);
@@ -197,6 +229,40 @@ describe('auth error handling', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Dead-letter handling (Issue #49)
+// ---------------------------------------------------------------------------
+describe('dead_letter event handling', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test('dead_letter event resets retry count and cancels a pending retry timer', async () => {
+    const uploader = makeUploader();
+    const ctrl = makeController(uploader, { baseDelayMs: 5000, maxRetries: 3 });
+    ctrl.handleEvent(serverErrorEvent()); // schedules retry in 5000ms
+    ctrl.handleEvent({
+      type: 'dead_letter',
+      count: 1,
+      result: { ok: false, status: 500, retryable: true },
+    });
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(uploader.flushNow).not.toHaveBeenCalled();
+    expect(ctrl.pendingRetryCount).toBe(0);
+  });
+
+  test('dead_letter event does not itself trigger a flush (BatchUploader already continues its own loop)', async () => {
+    const uploader = makeUploader();
+    const ctrl = makeController(uploader, { baseDelayMs: 100, maxRetries: 3 });
+    ctrl.handleEvent({
+      type: 'dead_letter',
+      count: 1,
+      result: { ok: false, status: 400, retryable: false },
+    });
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(uploader.flushNow).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Connectivity restore
 // ---------------------------------------------------------------------------
 describe('onConnectivityRestored', () => {
@@ -207,7 +273,7 @@ describe('onConnectivityRestored', () => {
     const uploader = makeUploader();
     const ctrl = makeController(uploader, { baseDelayMs: 5000, maxRetries: 3 });
     ctrl.handleEvent(serverErrorEvent()); // pending timer set for 5000ms
-    ctrl.onConnectivityRestored();         // should cancel timer and flush now
+    ctrl.onConnectivityRestored(); // should cancel timer and flush now
     await jest.advanceTimersByTimeAsync(5000);
     expect(uploader.flushNow).toHaveBeenCalledTimes(1); // from restore, not from timer
     expect(ctrl.pendingRetryCount).toBe(0);
