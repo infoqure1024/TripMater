@@ -1,6 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 import { renderHook, act } from '@testing-library/react-native';
+import type { LocationPermissionState } from '../src/hooks/useLocationPermission';
 import {
   requestLocationPermissions,
   useLocationPermission,
@@ -346,6 +347,52 @@ describe('iOS permission flow', () => {
       expect(geoAuthMock).toHaveBeenNthCalledWith(2, 'always');
     },
   );
+});
+
+describe('useLocationPermission – concurrent request guard (Issue #37)', () => {
+  test('a call made while a request is in flight is guarded and returns the pre-request state without an extra native request', async () => {
+    let resolveFine!: (value: string) => void;
+    (PermissionsAndroid.request as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          resolveFine = resolve;
+        }),
+    );
+    (PermissionsAndroid.request as jest.Mock).mockResolvedValueOnce(
+      'granted', // background (API 30, requested right after fine)
+    );
+
+    const { result } = await renderHook(() => useLocationPermission());
+
+    let firstPromise!: Promise<LocationPermissionState>;
+    let secondResult!: LocationPermissionState;
+    let firstResult!: LocationPermissionState;
+    await act(async () => {
+      firstPromise = result.current.requestPermissions();
+      // Invoked synchronously in the same tick as the call above, while
+      // isRequestingRef.current is still true — must hit the early-return
+      // guard (`permissionStateRef.current`) rather than starting a second
+      // native permission flow. This is the guard/ref pairing Issue #37
+      // is about: permissionStateRef must never be a stale/INITIAL_STATE
+      // relative to what requestPermissions() is about to resolve with.
+      secondResult = await result.current.requestPermissions();
+      // At this point only the fine-location request has been issued — the
+      // guard above prevented the second call from starting its own native
+      // permission flow.
+      expect(PermissionsAndroid.request).toHaveBeenCalledTimes(1);
+
+      resolveFine('granted');
+      firstResult = await firstPromise;
+    });
+
+    expect(secondResult.fineLocation).toBe('pending');
+    expect(firstResult.fineLocation).toBe('granted');
+    // permissionStateRef.current is assigned synchronously alongside
+    // setPermissionState (see useLocationPermission.ts), so the hook's
+    // reactive permissionState is already consistent here without needing
+    // an extra render/effect flush.
+    expect(result.current.permissionState.fineLocation).toBe('granted');
+  });
 });
 
 describe('useLocationPermission – unmount safety', () => {

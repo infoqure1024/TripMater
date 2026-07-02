@@ -179,9 +179,6 @@ export function useLocationPermission() {
   const isRequestingRef = useRef(false);
   const permissionStateRef = useRef(permissionState);
   const mountedRef = useRef(true);
-  useEffect(() => {
-    permissionStateRef.current = permissionState;
-  }, [permissionState]);
   useEffect(
     () => () => {
       mountedRef.current = false;
@@ -198,6 +195,14 @@ export function useLocationPermission() {
       setIsRequesting(true);
       try {
         const result = await requestLocationPermissions();
+        // Sync the ref synchronously alongside setPermissionState, rather than via a
+        // useEffect keyed on permissionState (Issue #37). An effect-based sync only
+        // commits after paint, so a caller that hits the isRequestingRef guard above
+        // immediately after this request resolves could read a stale
+        // permissionStateRef.current (up to one render cycle behind, potentially still
+        // INITIAL_STATE). Assigning here removes that window entirely instead of just
+        // narrowing it to a pre-paint one (as useLayoutEffect would).
+        permissionStateRef.current = result;
         if (mountedRef.current) {
           setPermissionState(result);
         }
