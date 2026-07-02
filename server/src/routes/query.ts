@@ -46,9 +46,10 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
       }
 
       try {
-        // Run row and count queries concurrently without a transaction. For GPS ingestion,
-        // exact count/row consistency is not required — concurrent inserts may cause total to
-        // drift slightly from the returned rows, which is acceptable for this use case.
+        // Intentional design decision: run row and count queries concurrently without a
+        // transaction. For GPS ingestion, exact count/row consistency is not required —
+        // concurrent inserts may cause total to drift slightly from the returned rows, which
+        // is acceptable for this use case.
         const [rowsResult, countResult] = await Promise.all([
           fastify.db.query<{
             session_id: string;
@@ -227,9 +228,10 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
           }
         }
 
-        // Run sample and count queries concurrently without a transaction. For GPS ingestion,
-        // exact count/row consistency is not required — concurrent inserts may cause total to
-        // drift slightly from the returned rows, which is acceptable for this use case.
+        // Intentional design decision: run sample and count queries concurrently without a
+        // transaction. For GPS ingestion, exact count/row consistency is not required —
+        // concurrent inserts may cause total to drift slightly from the returned rows, which
+        // is acceptable for this use case.
         const [samplesResult, countResult] = await Promise.all([
           fastify.db.query<{
             id: string;
