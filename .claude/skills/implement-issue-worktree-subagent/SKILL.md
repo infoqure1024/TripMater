@@ -1,3 +1,9 @@
+---
+name: implement-issue-worktree-subagent
+description: This skill should be used when the user asks to implement a specific GitHub issue using a Git worktree, e.g. "Issue #123をworktreeで実装して", or invokes "/implement-issue-worktree-subagent <Issue番号>". Sets up an isolated worktree, implements the issue with the best-suited subagent, runs tests/lint/typecheck, opens a PR, then cleans up the worktree.
+argument-hint: <Issue番号>
+---
+
 Issue#$ARGUMENTS を Git Worktree を使って実装してください。
 実装の際には、最適なサブエージェントを選択して実装してください。
 

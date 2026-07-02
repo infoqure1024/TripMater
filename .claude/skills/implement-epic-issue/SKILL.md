@@ -1,3 +1,9 @@
+---
+name: implement-epic-issue
+description: This skill should be used when the user asks to implement the child issues of a GitHub epic issue in recommended order, e.g. "エピックIssue #10の子Issueを実装して", or invokes "/implement-epic-issue <エピックIssue番号>". Follows the epic's documented "推奨着手順" (see "実装順・依存"), implementing each linked child issue in turn with the best-suited subagent.
+argument-hint: <エピックIssue番号>
+---
+
 Github の エピック Issue#$ARGUMENTS に記載された`推奨着手順`（`実装順・依存`を参照）にしたがって、子 Issue の実装を進めてください。
 ひとつひとつの Issue について、次の実装手順で作業を進めてください。
 エピック記載されたすべての Issue について、実装手順を繰り返し実行してください。

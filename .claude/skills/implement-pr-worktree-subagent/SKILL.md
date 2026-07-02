@@ -1,3 +1,9 @@
+---
+name: implement-pr-worktree-subagent
+description: This skill should be used when the user asks to address review feedback on an existing pull request using a Git worktree, e.g. "PR #45のレビュー指摘に対応して", or invokes "/implement-pr-worktree-subagent <Issue番号> <PR番号>". Checks out the existing feature/issue-<番号> branch in a worktree, addresses the latest review comments with the best-suited subagent, runs tests/lint/typecheck, pushes the changes, then cleans up the worktree.
+argument-hint: <Issue番号> <PR番号>
+---
+
 Issue#$ARGUMENTS に対する PR#$ARGUMENTS2 について Git Worktree を使い、レビュー指摘に対応してください。
 実装の際には、最適なサブエージェントを選択して実装してください。
 

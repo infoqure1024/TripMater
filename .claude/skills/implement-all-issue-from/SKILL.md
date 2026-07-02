@@ -1,3 +1,9 @@
+---
+name: implement-all-issue-from
+description: This skill should be used when the user asks to implement all open GitHub issues starting from a given issue number in order, e.g. "Issue #50からOpenなIssueを全部実装して", or invokes "/implement-all-issue-from <開始Issue番号>". Works through each open issue in ascending order until the highest-numbered issue is complete, choosing the best subagent for each task.
+argument-hint: <開始Issue番号>
+---
+
 すべての Open 状態の Issue について、#$ARGUMENTS から番号の順に、最も番号の大きな Issue が完了するまで、実装を進めてください。
 その際、それぞれのタスクに最適なサブエージェントを選択してくだい。
 ひとつひとつの Issue については、次の`実装手順`で作業を進めてください。
