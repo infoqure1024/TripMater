@@ -80,6 +80,12 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
     const whenInUseRaw = await Geolocation.requestAuthorization('whenInUse');
     const fineLocation = mapIosResult(whenInUseRaw);
     if (fineLocation !== 'granted') {
+      // TODO(Issue #33): notifications is hardcoded to 'granted' because this app does
+      // not yet use push notifications on iOS. iOS 14+ requires a separate runtime
+      // permission for notifications via UNUserNotificationCenter.requestAuthorization
+      // (not covered by Geolocation.requestAuthorization). When notification support
+      // is added, call that API through a native module and map its result here
+      // instead of hardcoding 'granted'.
       return buildState({
         fineLocation,
         backgroundLocation: fineLocation,
@@ -88,6 +94,10 @@ export async function requestLocationPermissions(): Promise<LocationPermissionSt
     }
     // Step 2: Upgrade to "Always" for background location continuation
     const alwaysRaw = await Geolocation.requestAuthorization('always');
+    // TODO(Issue #33): same as above — notifications is hardcoded to 'granted' since
+    // this app doesn't use push notifications on iOS yet. Replace with an actual
+    // UNUserNotificationCenter.requestAuthorization call (via native module) once
+    // notification support is implemented.
     return buildState({
       fineLocation: 'granted',
       backgroundLocation: mapIosResult(alwaysRaw),
