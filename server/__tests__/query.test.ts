@@ -371,10 +371,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     app = makeApp(
       makePool([
         {
-          rows: [
-            sessionRow({ device_id: DEVICE_ID }),
-            sessionRow({ device_id: OTHER_DEVICE_ID }),
-          ],
+          rows: [sessionRow({ device_id: DEVICE_ID }), sessionRow({ device_id: OTHER_DEVICE_ID })],
         },
       ])
     );
