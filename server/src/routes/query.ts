@@ -107,14 +107,20 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
   // GET /api/v1/sessions/:sessionId/summary
   // Returns aggregated summary for one session.
   // Device token: session must belong to own device (IDOR → 404). Admin: any session.
-  fastify.get<{ Params: { sessionId: string } }>(
+  // Admin + ?all=true: returns every device's summary for this session_id as an array,
+  // instead of the deterministic first row. Intended for debugging session_id collisions
+  // across devices (client bug or UUID collision) — see Issue #92. Device tokens ignore
+  // ?all=true since they can only ever see their own single device's rows.
+  fastify.get<{ Params: { sessionId: string }; Querystring: Record<string, unknown> }>(
     '/api/v1/sessions/:sessionId/summary',
     async (req, reply) => {
       const { sessionId } = req.params;
+      const returnAll = req.isAdmin && req.query['all'] === 'true';
 
       try {
         // For device token, add device_id predicate so a mismatch returns 0 rows → 404.
-        // Admin skips this predicate and can access any session.
+        // Admin skips this predicate and can access any session. Admin without ?all=true
+        // keeps LIMIT 1 for a deterministic single-object response (backward compatible).
         const result = await fastify.db.query<{
           session_id: string;
           device_id: string;
@@ -135,7 +141,7 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
                WHERE session_id = $1
                GROUP BY session_id, device_id
                ORDER BY MIN(recorded_at) ASC
-               LIMIT 1`
+               ${returnAll ? '' : 'LIMIT 1'}`
             : `SELECT
                  session_id,
                  device_id,
@@ -156,8 +162,7 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
             .send({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
         }
 
-        const row = result.rows[0];
-        return reply.code(200).send({
+        const toSummary = (row: (typeof result.rows)[number]): unknown => ({
           sessionId: row.session_id,
           deviceId: row.device_id,
           sampleCount: Number(row.sample_count),
@@ -165,6 +170,12 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
           startedAt: row.started_at,
           endedAt: row.ended_at,
         });
+
+        if (returnAll) {
+          return reply.code(200).send({ sessions: result.rows.map(toSummary) });
+        }
+
+        return reply.code(200).send(toSummary(result.rows[0]));
       } catch (err) {
         req.log.error({ err }, 'DB error in GET /sessions/:sessionId/summary');
         return reply.code(503).send({

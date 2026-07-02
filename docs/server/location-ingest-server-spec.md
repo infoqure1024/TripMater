@@ -280,6 +280,12 @@ GROUP BY session_id, device_id;
 > `total_distance_m` はクライアントが各 fix に付した `distanceDeltaM` の合計で算出する。
 > これによりサーバーは距離計算ロジックを持たずに済み、アプリの計測値と一致する。
 
+> `GET /sessions/{sessionId}/summary` は通常 `session_id, device_id` の 1 グループを返す
+> （管理者は `MIN(recorded_at) ASC LIMIT 1` で決定的な 1 件、デバイストークンは所有権述語により
+> 常に高々 1 件）。クライアントバグや UUID 衝突で同一 `session_id` が複数デバイスに存在する場合、
+> 管理者は `?all=true` を付けると `LIMIT 1` を外し `{ "sessions": [...] }` 形式で全グループを返す
+> （デバイストークンでは無視される）。デバッグ・調査専用で、通常運用では発生しない（Issue #92）。
+
 > ⚠️ `sessionId` は任意（§2.2）。未設定の sample はセッション系エンドポイントに現れない
 > （`session_id IS NULL` に集約され参照外）。セッション単位の参照を要するなら、クライアントは
 > 常に `sessionId` を付与すること。
