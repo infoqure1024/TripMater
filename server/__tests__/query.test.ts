@@ -386,6 +386,7 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json<SessionsBody>();
     expect(body.sessions).toHaveLength(2);
+    expect(body.total).toBe(2);
     expect(body.sessions.map((s) => s.deviceId).sort()).toEqual(
       [DEVICE_ID, OTHER_DEVICE_ID].sort()
     );

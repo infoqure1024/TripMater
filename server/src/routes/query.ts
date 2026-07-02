@@ -162,7 +162,16 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
             .send({ error: { code: 'NOT_FOUND', message: 'Session not found' } });
         }
 
-        const toSummary = (row: (typeof result.rows)[number]): unknown => ({
+        interface SessionSummaryResponse {
+          sessionId: string;
+          deviceId: string;
+          sampleCount: number;
+          totalDistanceM: number;
+          startedAt: Date;
+          endedAt: Date;
+        }
+
+        const toSummary = (row: (typeof result.rows)[number]): SessionSummaryResponse => ({
           sessionId: row.session_id,
           deviceId: row.device_id,
           sampleCount: Number(row.sample_count),
@@ -172,7 +181,8 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
         });
 
         if (returnAll) {
-          return reply.code(200).send({ sessions: result.rows.map(toSummary) });
+          const sessions = result.rows.map(toSummary);
+          return reply.code(200).send({ sessions, total: sessions.length });
         }
 
         return reply.code(200).send(toSummary(result.rows[0]));
