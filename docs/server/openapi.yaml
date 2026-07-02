@@ -156,19 +156,31 @@ paths:
       summary: セッションの合計走行距離・件数・期間
       description: >
         デバイストークンは対象 session の device_id == token.device を検証（非所有は 404）。管理者は任意。
+        `?all=true` は管理者が指定した場合のみ有効（session_id 衝突検出用、Issue #92）。デバイストークンでは
+        無視され、常に通常の単一 SessionSummary が返る。
       operationId: getSessionSummary
       security:
         - deviceToken: []
         - adminKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
+        - name: all
+          in: query
+          schema: { type: string, enum: ['true'] }
+          description: >
+            管理者のみ有効。'true' を指定すると、同一 session_id を持つ全デバイスのサマリを配列で返す
+            （session_id 衝突検出用、Issue #92）。デバイストークンでは無視され、通常の単一オブジェクトが返る。
       responses:
         '200':
-          description: セッションサマリ
+          description: >
+            セッションサマリ。管理者が ?all=true を指定した場合は SessionSummaryList
+            （session_id 衝突時の全デバイス分の配列）、それ以外は単一の SessionSummary。
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionSummary'
+                oneOf:
+                  - $ref: '#/components/schemas/SessionSummary'
+                  - $ref: '#/components/schemas/SessionSummaryList'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -461,6 +473,24 @@ components:
           description: distanceDeltaM の合計
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
+
+    SessionSummaryList:
+      type: object
+      description: >
+        管理者が ?all=true を指定した場合に返る、同一 session_id を持つ全デバイス分のサマリ配列
+        （session_id 衝突検出用、Issue #92）。
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSummary'
+        total:
+          type: integer
+          description: sessions 配列の件数（衝突している全グループ数ではなく、返却された配列の長さ）
+        truncated:
+          type: boolean
+          description: MAX_ALL_SESSIONS 件を超える session_id 衝突グループが存在し、結果が切り詰められた場合 true
+      required: [sessions, total, truncated]
 
     TokenIssueResult:
       type: object
