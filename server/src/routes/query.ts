@@ -4,6 +4,10 @@ const MAX_LIMIT_SESSIONS = 100;
 const DEFAULT_LIMIT_SESSIONS = 20;
 const MAX_LIMIT_SAMPLES = 1000;
 const DEFAULT_LIMIT_SAMPLES = 100;
+// Cap on rows returned by admin ?all=true session_id-collision debugging (Issue #92).
+// Real-world collisions only ever involve a handful of devices; this bounds a pathological
+// case. Fetch one extra row (MAX_ALL_SESSIONS + 1) to detect truncation without a COUNT query.
+const MAX_ALL_SESSIONS = 100;
 
 function parsePageParams(
   query: Record<string, unknown>,
@@ -112,6 +116,8 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
   // instead of the deterministic first row. Intended for debugging session_id collisions
   // across devices (client bug or UUID collision) — see Issue #92. Device tokens ignore
   // ?all=true since they can only ever see their own single device's rows.
+  // Capped at MAX_ALL_SESSIONS rows; if more groups exist, `truncated: true` is set on the
+  // response so callers know the collision count exceeded the cap (Issue #121).
   fastify.get<{ Params: { sessionId: string }; Querystring: Record<string, unknown> }>(
     '/api/v1/sessions/:sessionId/summary',
     async (req, reply) => {
@@ -142,7 +148,7 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
                WHERE session_id = $1
                GROUP BY session_id, device_id
                ORDER BY MIN(recorded_at) ASC
-               ${returnAll ? '' : 'LIMIT 1'}`
+               ${returnAll ? `LIMIT ${MAX_ALL_SESSIONS + 1}` : 'LIMIT 1'}`
             : `SELECT
                  session_id,
                  device_id,
@@ -182,8 +188,12 @@ export async function queryRoute(fastify: FastifyInstance): Promise<void> {
         });
 
         if (returnAll) {
-          const sessions = result.rows.map(toSummary);
-          return reply.code(200).send({ sessions, total: sessions.length });
+          // We fetched MAX_ALL_SESSIONS + 1 rows; a full extra row means more groups exist
+          // beyond the cap. Trim it off before mapping so the response never exceeds the cap.
+          const truncated = result.rows.length > MAX_ALL_SESSIONS;
+          const rows = truncated ? result.rows.slice(0, MAX_ALL_SESSIONS) : result.rows;
+          const sessions = rows.map(toSummary);
+          return reply.code(200).send({ sessions, total: sessions.length, truncated });
         }
 
         return reply.code(200).send(toSummary(result.rows[0]));
