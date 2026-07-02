@@ -14,13 +14,16 @@ export class FsQueueStorage implements QueueStorage {
   private readonly filePath: string;
 
   constructor(filePath?: string) {
-    this.filePath = filePath ?? `${RNFS.DocumentDirectoryPath}/upload_queue.json`;
+    this.filePath =
+      filePath ?? `${RNFS.DocumentDirectoryPath}/upload_queue.json`;
   }
 
   async load(): Promise<LocationSample[]> {
     try {
       const exists = await RNFS.exists(this.filePath);
-      if (!exists) { return []; }
+      if (!exists) {
+        return [];
+      }
       const raw = await RNFS.readFile(this.filePath, 'utf8');
       return JSON.parse(raw) as LocationSample[];
     } catch {
@@ -37,18 +40,47 @@ export class FsQueueStorage implements QueueStorage {
 // Queue logic — independent of the storage backend
 // ---------------------------------------------------------------------------
 
+export interface UploadQueueOptions {
+  /** Hard cap on queue length; oldest items are pruned once this is exceeded. */
+  maxSize?: number;
+}
+
+// 10k samples at ~1 fix/sec ≈ ~3 hours of continuous driving, or many days of
+// intermittent use. A single sample serializes to well under 1KB, so this
+// keeps the on-disk JSON queue file in the low single-digit MB range even if
+// the head of the queue is stuck (Issue #49: poison-pill batch) or the device
+// is offline for an extended period.
+export const DEFAULT_MAX_QUEUE_SIZE = 10_000;
+
 export class UploadQueue {
   private items: LocationSample[] = [];
   // Single shared promise prevents concurrent callers from each issuing a
   // storage.load() and overwriting each other's in-flight mutations.
   private initPromise: Promise<void> | null = null;
+  private maxSize: number;
+  // In-memory only (not persisted) — diagnostic counter for how many items
+  // have been evicted via deadLetter() since this instance was created.
+  private deadLetterCount = 0;
 
-  constructor(private readonly storage: QueueStorage) {}
+  constructor(
+    private readonly storage: QueueStorage,
+    options: UploadQueueOptions = {},
+  ) {
+    this.maxSize = options.maxSize ?? DEFAULT_MAX_QUEUE_SIZE;
+  }
+
+  /** Adjust the max queue size at runtime (e.g. when persisted config loads). */
+  setMaxSize(maxSize: number): void {
+    this.maxSize = maxSize;
+  }
 
   private ensureInit(): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = this.storage.load()
-        .then(items => { this.items = items; })
+      this.initPromise = this.storage
+        .load()
+        .then(items => {
+          this.items = items;
+        })
         .catch(e => {
           // Allow retry on next call rather than permanently bricking the queue.
           this.initPromise = null;
@@ -66,6 +98,18 @@ export class UploadQueue {
     } catch (e) {
       this.items.pop();
       throw e;
+    }
+    // Enforce the hard cap so a stuck head-of-line batch (Issue #49) or a
+    // prolonged offline period can't grow the on-disk queue without bound.
+    // Best-effort: the new sample is already safely persisted above, so a
+    // failure to persist the prune isn't fatal to this enqueue — it will be
+    // retried on the next enqueue call.
+    if (this.items.length > this.maxSize) {
+      try {
+        await this.prune(this.maxSize);
+      } catch {
+        /* see comment above — retried next time */
+      }
     }
   }
 
@@ -92,12 +136,32 @@ export class UploadQueue {
     return this.items.length;
   }
 
+  /**
+   * Evicts items by ID without treating them as delivered — used by
+   * BatchUploader (Issue #49) when a batch at the head of the queue has
+   * failed too many times in a row and must be removed so later data isn't
+   * blocked forever. Persistence-wise this is identical to ack(); the only
+   * difference is intent, tracked via deadLetterCount() for diagnostics.
+   */
+  async deadLetter(ids: string[]): Promise<void> {
+    await this.ack(ids);
+    this.deadLetterCount += ids.length;
+  }
+
+  /** Total items evicted via deadLetter() since this instance was created.
+   *  In-memory only (not persisted) — for diagnostics/telemetry. */
+  getDeadLetterCount(): number {
+    return this.deadLetterCount;
+  }
+
   /** Removes the oldest items until the queue is at most `maxSize` entries.
    *  Returns the number of items pruned. */
   async prune(maxSize: number): Promise<number> {
     await this.ensureInit();
     const excess = this.items.length - maxSize;
-    if (excess <= 0) { return 0; }
+    if (excess <= 0) {
+      return 0;
+    }
     const prev = this.items;
     this.items = this.items.slice(excess);
     try {
@@ -110,6 +174,8 @@ export class UploadQueue {
   }
 }
 
-export function createDefaultUploadQueue(): UploadQueue {
-  return new UploadQueue(new FsQueueStorage());
+export function createDefaultUploadQueue(
+  options?: UploadQueueOptions,
+): UploadQueue {
+  return new UploadQueue(new FsQueueStorage(), options);
 }

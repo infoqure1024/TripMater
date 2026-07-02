@@ -194,6 +194,7 @@ export default function OdometerScreen() {
         pendingCount={uploader.pendingCount}
         lastSentAt={uploader.lastSentAt}
         authError={uploader.authError}
+        deadLetterCount={uploader.deadLetterCount}
         onToggle={uploader.toggleUpload}
         onOpenSettings={() => setSettingsVisible(true)}
       />

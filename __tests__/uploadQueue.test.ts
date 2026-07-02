@@ -12,7 +12,11 @@ jest.mock('react-native-fs', () => ({
   writeFile: jest.fn(),
 }));
 
-import { QueueStorage, UploadQueue } from '../src/storage/uploadQueue';
+import {
+  DEFAULT_MAX_QUEUE_SIZE,
+  QueueStorage,
+  UploadQueue,
+} from '../src/storage/uploadQueue';
 import { LocationSample } from '../src/core/uploadTypes';
 
 // ---------------------------------------------------------------------------
@@ -30,10 +34,15 @@ class InMemoryStorage implements QueueStorage {
   }
 
   /** Expose persisted data for cross-instance tests */
-  snapshot(): LocationSample[] { return [...this.data]; }
+  snapshot(): LocationSample[] {
+    return [...this.data];
+  }
 }
 
-function makeSample(id: string, overrides: Partial<LocationSample> = {}): LocationSample {
+function makeSample(
+  id: string,
+  overrides: Partial<LocationSample> = {},
+): LocationSample {
   return {
     id,
     deviceId: 'device-1',
@@ -74,7 +83,9 @@ describe('enqueue + peekBatch', () => {
 
   test('peekBatch respects limit and does not exceed it', async () => {
     const [q] = makeQueue();
-    for (let i = 0; i < 5; i++) { await q.enqueue(makeSample(`s${i}`)); }
+    for (let i = 0; i < 5; i++) {
+      await q.enqueue(makeSample(`s${i}`));
+    }
     const batch = await q.peekBatch(3);
     expect(batch).toHaveLength(3);
     expect(batch.map(s => s.id)).toEqual(['s0', 's1', 's2']);
@@ -169,7 +180,9 @@ describe('count', () => {
 describe('prune', () => {
   test('prune removes oldest items to reach maxSize', async () => {
     const [q] = makeQueue();
-    for (const id of ['a', 'b', 'c', 'd', 'e']) { await q.enqueue(makeSample(id)); }
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      await q.enqueue(makeSample(id));
+    }
     const pruned = await q.prune(3);
     expect(pruned).toBe(2);
     const remaining = await q.peekBatch(10);
@@ -196,7 +209,9 @@ describe('prune', () => {
 
   test('prune with maxSize=0 removes all items', async () => {
     const [q] = makeQueue();
-    for (const id of ['a', 'b', 'c']) { await q.enqueue(makeSample(id)); }
+    for (const id of ['a', 'b', 'c']) {
+      await q.enqueue(makeSample(id));
+    }
     const pruned = await q.prune(0);
     expect(pruned).toBe(3);
     expect(await q.count()).toBe(0);
@@ -205,6 +220,93 @@ describe('prune', () => {
   test('prune on empty queue is a no-op returning 0', async () => {
     const [q] = makeQueue();
     expect(await q.prune(5)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maxSize auto-prune on enqueue (Issue #49)
+// ---------------------------------------------------------------------------
+describe('maxSize auto-prune on enqueue', () => {
+  test('enqueue prunes the oldest item once maxSize is exceeded', async () => {
+    const storage = new InMemoryStorage();
+    const q = new UploadQueue(storage, { maxSize: 3 });
+    for (const id of ['a', 'b', 'c']) {
+      await q.enqueue(makeSample(id));
+    }
+    await q.enqueue(makeSample('d')); // now 4 > maxSize=3 -> prunes oldest ('a')
+    const ids = (await q.peekBatch(10)).map(s => s.id);
+    expect(ids).toEqual(['b', 'c', 'd']);
+    expect(await q.count()).toBe(3);
+  });
+
+  test('enqueue does not prune while at or under maxSize', async () => {
+    const storage = new InMemoryStorage();
+    const q = new UploadQueue(storage, { maxSize: 3 });
+    for (const id of ['a', 'b', 'c']) {
+      await q.enqueue(makeSample(id));
+    }
+    expect(await q.count()).toBe(3);
+  });
+
+  test('setMaxSize adjusts the cap applied on subsequent enqueues', async () => {
+    const storage = new InMemoryStorage();
+    const q = new UploadQueue(storage, { maxSize: 10 });
+    await q.enqueue(makeSample('a'));
+    await q.enqueue(makeSample('b'));
+    q.setMaxSize(1);
+    await q.enqueue(makeSample('c')); // now over the new cap of 1 -> prunes down to ['c']
+    const ids = (await q.peekBatch(10)).map(s => s.id);
+    expect(ids).toEqual(['c']);
+  });
+
+  test('default maxSize is DEFAULT_MAX_QUEUE_SIZE when no option is given', async () => {
+    const storage = new InMemoryStorage();
+    const q = new UploadQueue(storage);
+    for (let i = 0; i < 5; i++) {
+      await q.enqueue(makeSample(`s${i}`));
+    }
+    expect(await q.count()).toBe(5); // far below default cap — nothing pruned
+    expect(DEFAULT_MAX_QUEUE_SIZE).toBeGreaterThan(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deadLetter (Issue #49)
+// ---------------------------------------------------------------------------
+describe('deadLetter', () => {
+  test('deadLetter removes the given IDs, same as ack', async () => {
+    const [q] = makeQueue();
+    await q.enqueue(makeSample('a'));
+    await q.enqueue(makeSample('b'));
+    await q.deadLetter(['a']);
+    const ids = (await q.peekBatch(10)).map(s => s.id);
+    expect(ids).toEqual(['b']);
+    expect(await q.count()).toBe(1);
+  });
+
+  test('deadLetter increments the diagnostic counter by the number of items evicted', async () => {
+    const [q] = makeQueue();
+    await q.enqueue(makeSample('a'));
+    await q.enqueue(makeSample('b'));
+    expect(q.getDeadLetterCount()).toBe(0);
+    await q.deadLetter(['a']);
+    expect(q.getDeadLetterCount()).toBe(1);
+    await q.deadLetter(['b']);
+    expect(q.getDeadLetterCount()).toBe(2);
+  });
+
+  test('deadLetter does not increment the counter when the underlying save fails', async () => {
+    const storage: QueueStorage = {
+      async load() {
+        return [];
+      },
+      async save() {
+        throw new Error('disk full');
+      },
+    };
+    const q = new UploadQueue(storage);
+    await expect(q.deadLetter(['a'])).rejects.toThrow('disk full');
+    expect(q.getDeadLetterCount()).toBe(0);
   });
 });
 
@@ -230,7 +332,9 @@ describe('save failure rollback', () => {
   class FailingStorage extends InMemoryStorage {
     shouldFail = false;
     async save(items: LocationSample[]): Promise<void> {
-      if (this.shouldFail) { throw new Error('disk full'); }
+      if (this.shouldFail) {
+        throw new Error('disk full');
+      }
       return super.save(items);
     }
   }
@@ -260,7 +364,9 @@ describe('save failure rollback', () => {
   test('prune rolls back in-memory state when save fails', async () => {
     const storage = new FailingStorage();
     const q = new UploadQueue(storage);
-    for (const id of ['a', 'b', 'c']) { await q.enqueue(makeSample(id)); }
+    for (const id of ['a', 'b', 'c']) {
+      await q.enqueue(makeSample(id));
+    }
     storage.shouldFail = true;
     await expect(q.prune(1)).rejects.toThrow('disk full');
     expect(await q.count()).toBe(3);
@@ -276,7 +382,9 @@ describe('init failure resilience', () => {
     const flakyStorage: QueueStorage = {
       async load() {
         callCount++;
-        if (callCount === 1) { throw new Error('transient read error'); }
+        if (callCount === 1) {
+          throw new Error('transient read error');
+        }
         return [];
       },
       async save() {},

@@ -4,11 +4,24 @@ import { UploadQueue } from '../storage/uploadQueue';
 export interface UploadConfig {
   batchSize: number;
   flushIntervalMs: number;
+  /**
+   * Dead-letter threshold (Issue #49). If the same head-of-queue batch
+   * receives this many consecutive non-2xx results, it's evicted from the
+   * queue so later data isn't blocked forever behind a poison-pill batch
+   * (e.g. a permanently-rejected payload, or an auth error that never
+   * clears). Network/timeout errors (UploadEvent 'error', no HTTP result)
+   * are not counted here — those already back off via RetryController and
+   * are more likely a transient connectivity issue than a bad batch.
+   */
+  maxConsecutiveFailures: number;
 }
 
 export const DEFAULT_UPLOAD_CONFIG: UploadConfig = {
   batchSize: 50,
   flushIntervalMs: 30_000,
+  // Matches RetryController's DEFAULT_BACKOFF_CONFIG.maxRetries so a batch
+  // gets roughly one full backoff cycle's worth of attempts before eviction.
+  maxConsecutiveFailures: 5,
 };
 
 export type UploadEventListener = (event: UploadEvent) => void;
@@ -16,7 +29,9 @@ export type UploadEventListener = (event: UploadEvent) => void;
 export type UploadEvent =
   | { type: 'success'; count: number }
   | { type: 'failure'; result: UploadResult }
-  | { type: 'error'; error: Error };
+  | { type: 'error'; error: Error }
+  // Emitted when a batch was evicted after maxConsecutiveFailures in a row.
+  | { type: 'dead_letter'; count: number; result: UploadResult };
 
 export class BatchUploader {
   private config: UploadConfig;
@@ -24,6 +39,11 @@ export class BatchUploader {
   private stopped = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private listener: UploadEventListener | null = null;
+  // Tracks consecutive non-2xx results for the current head-of-queue batch,
+  // identified by its item IDs. Reset whenever the head batch's ID set
+  // changes (i.e. a different batch is now at the front).
+  private lastFailedBatchKey: string | null = null;
+  private consecutiveFailures = 0;
 
   constructor(
     private readonly queue: UploadQueue,
@@ -43,8 +63,12 @@ export class BatchUploader {
 
   /** Start the periodic flush timer. Call once on service startup. */
   start(): void {
-    if (this.timer !== null) { return; }
-    this.timer = setInterval(() => { this.flush(); }, this.config.flushIntervalMs);
+    if (this.timer !== null) {
+      return;
+    }
+    this.timer = setInterval(() => {
+      this.flush();
+    }, this.config.flushIntervalMs);
   }
 
   /** Stop the timer. Call on service teardown. */
@@ -73,7 +97,9 @@ export class BatchUploader {
   }
 
   private async flush(): Promise<void> {
-    if (this.inflight || this.stopped) { return; }
+    if (this.inflight || this.stopped) {
+      return;
+    }
     this.inflight = true;
     try {
       await this.flushLoop();
@@ -89,7 +115,9 @@ export class BatchUploader {
   private async flushLoop(): Promise<void> {
     while (true) {
       const batch = await this.queue.peekBatch(this.config.batchSize);
-      if (batch.length === 0) { return; }
+      if (batch.length === 0) {
+        return;
+      }
 
       let result: UploadResult;
       try {
@@ -102,9 +130,33 @@ export class BatchUploader {
       if (result.ok) {
         await this.queue.ack(batch.map(s => s.id));
         this.listener?.({ type: 'success', count: batch.length });
+        this.lastFailedBatchKey = null;
+        this.consecutiveFailures = 0;
         // If there were exactly batchSize items, there may be more — keep going.
-        if (batch.length < this.config.batchSize) { return; }
+        if (batch.length < this.config.batchSize) {
+          return;
+        }
       } else {
+        const batchKey = batch.map(s => s.id).join(',');
+        if (batchKey === this.lastFailedBatchKey) {
+          this.consecutiveFailures++;
+        } else {
+          this.lastFailedBatchKey = batchKey;
+          this.consecutiveFailures = 1;
+        }
+
+        if (this.consecutiveFailures >= this.config.maxConsecutiveFailures) {
+          // Poison-pill (Issue #49): this exact batch has failed too many
+          // times in a row. Evict it from the head of the queue so later
+          // data isn't blocked forever, reset tracking, and keep looping —
+          // peekBatch() will now return the batch behind it.
+          await this.queue.deadLetter(batch.map(s => s.id));
+          this.listener?.({ type: 'dead_letter', count: batch.length, result });
+          this.lastFailedBatchKey = null;
+          this.consecutiveFailures = 0;
+          continue;
+        }
+
         this.listener?.({ type: 'failure', result });
         return;
       }

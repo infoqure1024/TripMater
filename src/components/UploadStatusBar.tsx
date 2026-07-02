@@ -8,8 +8,14 @@ interface Props extends UploaderStatus {
 }
 
 function fmtTime(d: Date | null): string {
-  if (!d) { return '—'; }
-  return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  if (!d) {
+    return '—';
+  }
+  return d.toLocaleTimeString('ja-JP', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 export function UploadStatusBar({
@@ -18,6 +24,7 @@ export function UploadStatusBar({
   pendingCount,
   lastSentAt,
   authError,
+  deadLetterCount,
   onToggle,
   onOpenSettings,
 }: Props): React.JSX.Element {
@@ -25,7 +32,12 @@ export function UploadStatusBar({
     <View style={styles.container}>
       <View style={styles.row}>
         <View style={styles.cell}>
-          <View style={[styles.dot, { backgroundColor: isOnline ? '#37D67A' : '#FF5A5F' }]} />
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: isOnline ? '#37D67A' : '#FF5A5F' },
+            ]}
+          />
           <Text style={styles.label}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
         </View>
 
@@ -64,6 +76,12 @@ export function UploadStatusBar({
             : `送信エラー (${authError})`}
         </Text>
       )}
+
+      {deadLetterCount > 0 && (
+        <Text style={styles.warnText} testID="dead-letter-count">
+          {`送信不能データを破棄: ${deadLetterCount}件`}
+        </Text>
+      )}
     </View>
   );
 }
@@ -85,13 +103,31 @@ const styles = StyleSheet.create({
   },
   cell: { alignItems: 'center', gap: 2 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  label: { color: '#7E8895', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
-  bigValue: { color: '#F3F6FA', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  label: {
+    color: '#7E8895',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  bigValue: {
+    color: '#F3F6FA',
+    fontSize: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   timeValue: { color: '#F3F6FA', fontSize: 11, fontVariant: ['tabular-nums'] },
   settingsIcon: { color: '#F3F6FA', fontSize: 18 },
   errorText: {
     marginTop: 6,
     color: '#FF5A5F',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  warnText: {
+    marginTop: 6,
+    color: '#F5A623',
     fontSize: 11,
     fontWeight: '600',
     textAlign: 'center',

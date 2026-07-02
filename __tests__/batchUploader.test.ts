@@ -10,9 +10,17 @@ jest.mock('react-native-fs', () => ({
   writeFile: jest.fn(),
 }));
 
-import { BatchUploader, UploadConfig, UploadEvent } from '../src/core/batchUploader';
+import {
+  BatchUploader,
+  UploadConfig,
+  UploadEvent,
+} from '../src/core/batchUploader';
 import { UploadQueue, QueueStorage } from '../src/storage/uploadQueue';
-import { LocationSample, UploadClient, UploadResult } from '../src/core/uploadTypes';
+import {
+  LocationSample,
+  UploadClient,
+  UploadResult,
+} from '../src/core/uploadTypes';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -20,8 +28,12 @@ import { LocationSample, UploadClient, UploadResult } from '../src/core/uploadTy
 
 class InMemoryStorage implements QueueStorage {
   private data: LocationSample[] = [];
-  async load() { return [...this.data]; }
-  async save(items: LocationSample[]) { this.data = [...items]; }
+  async load() {
+    return [...this.data];
+  }
+  async save(items: LocationSample[]) {
+    this.data = [...items];
+  }
 }
 
 function makeSample(id: string): LocationSample {
@@ -95,12 +107,16 @@ describe('count trigger', () => {
 // ---------------------------------------------------------------------------
 describe('timer trigger', () => {
   beforeEach(() => jest.useFakeTimers());
-  afterEach(() => { jest.useRealTimers(); });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 
   test('flush fires after flushIntervalMs via start()', async () => {
     const storage = new InMemoryStorage();
     const client = makeClient(OK);
-    const [uploader, queue] = makeUploader(storage, client, { flushIntervalMs: 5000 });
+    const [uploader, queue] = makeUploader(storage, client, {
+      flushIntervalMs: 5000,
+    });
     await queue.enqueue(makeSample('a'));
     uploader.start();
     await jest.advanceTimersByTimeAsync(5000);
@@ -111,7 +127,9 @@ describe('timer trigger', () => {
   test('stop() cancels the timer so no further flushes occur', async () => {
     const storage = new InMemoryStorage();
     const client = makeClient(OK);
-    const [uploader, queue] = makeUploader(storage, client, { flushIntervalMs: 5000 });
+    const [uploader, queue] = makeUploader(storage, client, {
+      flushIntervalMs: 5000,
+    });
     await queue.enqueue(makeSample('a'));
     uploader.start();
     uploader.stop();
@@ -122,7 +140,9 @@ describe('timer trigger', () => {
   test('start() is idempotent — calling twice does not double-fire', async () => {
     const storage = new InMemoryStorage();
     const client = makeClient(OK);
-    const [uploader, queue] = makeUploader(storage, client, { flushIntervalMs: 5000 });
+    const [uploader, queue] = makeUploader(storage, client, {
+      flushIntervalMs: 5000,
+    });
     await queue.enqueue(makeSample('a'));
     uploader.start();
     uploader.start(); // second call must be no-op
@@ -150,7 +170,9 @@ describe('success path', () => {
     const storage = new InMemoryStorage();
     const client = makeClient(OK);
     const [uploader, queue] = makeUploader(storage, client, { batchSize: 2 });
-    for (const id of ['a', 'b', 'c', 'd']) { await queue.enqueue(makeSample(id)); }
+    for (const id of ['a', 'b', 'c', 'd']) {
+      await queue.enqueue(makeSample(id));
+    }
     await uploader.flushNow();
     expect(client.upload).toHaveBeenCalledTimes(2);
     expect(await queue.count()).toBe(0);
@@ -205,7 +227,9 @@ describe('failure path', () => {
 
   test('listener receives error event when client.upload() throws', async () => {
     const storage = new InMemoryStorage();
-    const client = { upload: jest.fn().mockRejectedValue(new Error('network down')) };
+    const client = {
+      upload: jest.fn().mockRejectedValue(new Error('network down')),
+    };
     const [uploader, queue] = makeUploader(storage, client);
     const events: UploadEvent[] = [];
     uploader.setListener(e => events.push(e));
@@ -213,6 +237,97 @@ describe('failure path', () => {
     await uploader.flushNow();
     expect(events[0].type).toBe('error');
     expect(await queue.count()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dead-letter / poison-pill batch eviction (Issue #49)
+// ---------------------------------------------------------------------------
+describe('dead-letter after repeated consecutive failures', () => {
+  test('head batch is evicted after maxConsecutiveFailures in a row, unblocking later data in the same flush', async () => {
+    const storage = new InMemoryStorage();
+    const upload = jest.fn(async (batch: LocationSample[]) =>
+      batch.some(s => s.id === 'a') ? SERVER_ERROR : OK,
+    );
+    const client: UploadClient = { upload };
+    const [uploader, queue] = makeUploader(storage, client, {
+      batchSize: 1,
+      maxConsecutiveFailures: 3,
+    });
+    const events: UploadEvent[] = [];
+    uploader.setListener(e => events.push(e));
+
+    await queue.enqueue(makeSample('a'));
+    await queue.enqueue(makeSample('b'));
+
+    await uploader.flushNow(); // attempt 1 on 'a': fails
+    await uploader.flushNow(); // attempt 2 on 'a': fails
+    await uploader.flushNow(); // attempt 3 on 'a': fails -> dead-lettered, then 'b' is sent in the same call
+
+    expect(events.filter(e => e.type === 'failure')).toHaveLength(2);
+    expect(events.filter(e => e.type === 'dead_letter')).toHaveLength(1);
+    expect(events.filter(e => e.type === 'success')).toHaveLength(1);
+    expect(await queue.count()).toBe(0);
+    expect(queue.getDeadLetterCount()).toBe(1);
+  });
+
+  test('failures below the threshold leave the batch in the queue (not evicted)', async () => {
+    const storage = new InMemoryStorage();
+    const client = makeClient(SERVER_ERROR);
+    const [uploader, queue] = makeUploader(storage, client, {
+      batchSize: 10,
+      maxConsecutiveFailures: 5,
+    });
+    await queue.enqueue(makeSample('a'));
+    for (let i = 0; i < 4; i++) {
+      await uploader.flushNow();
+    }
+    expect(await queue.count()).toBe(1);
+    expect(queue.getDeadLetterCount()).toBe(0);
+  });
+
+  test('non-retryable (4xx/auth) failures count toward eviction the same as retryable ones', async () => {
+    const storage = new InMemoryStorage();
+    const client = makeClient(AUTH_ERROR); // 401, non-retryable
+    const [uploader, queue] = makeUploader(storage, client, {
+      batchSize: 10,
+      maxConsecutiveFailures: 2,
+    });
+    const events: UploadEvent[] = [];
+    uploader.setListener(e => events.push(e));
+    await queue.enqueue(makeSample('a'));
+    await uploader.flushNow(); // fail 1
+    await uploader.flushNow(); // fail 2 -> evicted
+    expect(events.filter(e => e.type === 'dead_letter')).toHaveLength(1);
+    expect(await queue.count()).toBe(0);
+  });
+
+  test('consecutive-failure counter resets after success, so a later batch needs its own full streak', async () => {
+    const storage = new InMemoryStorage();
+    const results: Record<string, UploadResult> = {};
+    const upload = jest.fn(
+      async (batch: LocationSample[]) => results[batch[0].id] ?? OK,
+    );
+    const client: UploadClient = { upload };
+    const [uploader, queue] = makeUploader(storage, client, {
+      batchSize: 1,
+      maxConsecutiveFailures: 3,
+    });
+
+    await queue.enqueue(makeSample('a'));
+    results.a = SERVER_ERROR;
+    await uploader.flushNow(); // fail 1
+    await uploader.flushNow(); // fail 2
+    results.a = OK;
+    await uploader.flushNow(); // recovers -> acked, counter reset
+    expect(await queue.count()).toBe(0);
+
+    await queue.enqueue(makeSample('b'));
+    results.b = SERVER_ERROR;
+    await uploader.flushNow(); // fail 1 for 'b'
+    await uploader.flushNow(); // fail 2 for 'b' (would be fail 4 if counter hadn't reset)
+    expect(await queue.count()).toBe(1); // still present, not yet evicted
+    expect(queue.getDeadLetterCount()).toBe(0);
   });
 });
 
@@ -226,12 +341,14 @@ describe('inflight guard', () => {
     const blocked = new Promise<UploadResult>(resolve => {
       resolveUpload = () => resolve(OK);
     });
-    const client = { upload: jest.fn().mockReturnValueOnce(blocked).mockResolvedValue(OK) };
+    const client = {
+      upload: jest.fn().mockReturnValueOnce(blocked).mockResolvedValue(OK),
+    };
     const [uploader, queue] = makeUploader(storage, client, { batchSize: 10 });
     await queue.enqueue(makeSample('a'));
 
-    const first = uploader.flushNow();   // starts, blocked on upload
-    const second = uploader.flushNow();  // should be no-op because inflight=true
+    const first = uploader.flushNow(); // starts, blocked on upload
+    const second = uploader.flushNow(); // should be no-op because inflight=true
     resolveUpload();
     await Promise.all([first, second]);
 
@@ -245,12 +362,14 @@ describe('inflight guard', () => {
     const blocked = new Promise<UploadResult>(resolve => {
       resolveUpload = () => resolve(OK);
     });
-    const client = { upload: jest.fn().mockReturnValueOnce(blocked).mockResolvedValue(OK) };
+    const client = {
+      upload: jest.fn().mockReturnValueOnce(blocked).mockResolvedValue(OK),
+    };
     const [uploader, queue] = makeUploader(storage, client, { batchSize: 1 });
     await queue.enqueue(makeSample('a'));
 
-    const flush = uploader.flushNow();  // inflight
-    await uploader.onEnqueue();         // should be skipped
+    const flush = uploader.flushNow(); // inflight
+    await uploader.onEnqueue(); // should be skipped
     resolveUpload();
     await flush;
 

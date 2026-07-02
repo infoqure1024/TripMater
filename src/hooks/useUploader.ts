@@ -3,9 +3,15 @@ import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { LocationSample } from '../core/uploadTypes';
 import { HttpUploadClient } from '../core/uploadClient';
 import { BatchUploader } from '../core/batchUploader';
-import { RetryController, DEFAULT_BACKOFF_CONFIG } from '../core/retryController';
+import {
+  RetryController,
+  DEFAULT_BACKOFF_CONFIG,
+} from '../core/retryController';
 import { UploadQueue, createDefaultUploadQueue } from '../storage/uploadQueue';
-import { loadUploadConfig, saveUploadConfig } from '../storage/uploadConfigStore';
+import {
+  loadUploadConfig,
+  saveUploadConfig,
+} from '../storage/uploadConfigStore';
 
 interface UploaderConfig {
   baseUrl: string;
@@ -21,6 +27,8 @@ export interface UploaderStatus {
   pendingCount: number;
   lastSentAt: Date | null;
   authError: number | null;
+  /** Total items evicted as poison-pill batches (Issue #49). Diagnostic only. */
+  deadLetterCount: number;
 }
 
 export interface UseUploaderReturn extends UploaderStatus {
@@ -34,6 +42,7 @@ export function useUploader(): UseUploaderReturn {
   const [pendingCount, setPendingCount] = useState(0);
   const [lastSentAt, setLastSentAt] = useState<Date | null>(null);
   const [authError, setAuthError] = useState<number | null>(null);
+  const [deadLetterCount, setDeadLetterCount] = useState(0);
   const [config, setConfig] = useState<UploaderConfig | null>(null);
 
   const queueRef = useRef<UploadQueue>(createDefaultUploadQueue());
@@ -69,15 +78,23 @@ export function useUploader(): UseUploaderReturn {
     // Fetch immediately so isOnline reflects reality on first render, not after first event.
     // Only applies the result if the addEventListener callback hasn't fired yet (prevOnlineRef
     // still null), preventing a stale snapshot from overwriting a fresher live update.
-    NetInfo.fetch().then((state: NetInfoState) => {
-      if (cancelled || prevOnlineRef.current !== null) { return; }
-      const online = state.isConnected === true && state.isInternetReachable !== false;
-      setIsOnline(online);
-      prevOnlineRef.current = online;
-    }).catch(() => { /* keep isOnline=false on error */ });
+    NetInfo.fetch()
+      .then((state: NetInfoState) => {
+        if (cancelled || prevOnlineRef.current !== null) {
+          return;
+        }
+        const online =
+          state.isConnected === true && state.isInternetReachable !== false;
+        setIsOnline(online);
+        prevOnlineRef.current = online;
+      })
+      .catch(() => {
+        /* keep isOnline=false on error */
+      });
 
     const unsub = NetInfo.addEventListener((state: NetInfoState) => {
-      const online = state.isConnected === true && state.isInternetReachable !== false;
+      const online =
+        state.isConnected === true && state.isInternetReachable !== false;
       setIsOnline(online);
       if (prevOnlineRef.current === false && online) {
         retryRef.current?.onConnectivityRestored();
@@ -111,15 +128,21 @@ export function useUploader(): UseUploaderReturn {
       flushIntervalMs: config.flushIntervalMs,
     });
 
-    const retry = new RetryController(uploader, DEFAULT_BACKOFF_CONFIG, (status) => {
-      setAuthError(status);
-    });
+    const retry = new RetryController(
+      uploader,
+      DEFAULT_BACKOFF_CONFIG,
+      status => {
+        setAuthError(status);
+      },
+    );
 
     uploader.setListener(event => {
       retry.handleEvent(event);
       if (event.type === 'success') {
         setLastSentAt(new Date());
         setAuthError(prev => (prev !== null ? null : prev));
+      } else if (event.type === 'dead_letter') {
+        setDeadLetterCount(queueRef.current.getDeadLetterCount());
       }
       refreshCount();
     });
@@ -137,11 +160,14 @@ export function useUploader(): UseUploaderReturn {
     };
   }, [config, uploadEnabled, refreshCount]);
 
-  const enqueue = useCallback(async (sample: LocationSample) => {
-    await queueRef.current.enqueue(sample);
-    await refreshCount();
-    await uploaderRef.current?.onEnqueue();
-  }, [refreshCount]);
+  const enqueue = useCallback(
+    async (sample: LocationSample) => {
+      await queueRef.current.enqueue(sample);
+      await refreshCount();
+      await uploaderRef.current?.onEnqueue();
+    },
+    [refreshCount],
+  );
 
   const toggleUpload = useCallback(async () => {
     const next = !uploadEnabledRef.current;
@@ -150,5 +176,14 @@ export function useUploader(): UseUploaderReturn {
     await saveUploadConfig({ uploadEnabled: next });
   }, []);
 
-  return { uploadEnabled, isOnline, pendingCount, lastSentAt, authError, enqueue, toggleUpload };
+  return {
+    uploadEnabled,
+    isOnline,
+    pendingCount,
+    lastSentAt,
+    authError,
+    deadLetterCount,
+    enqueue,
+    toggleUpload,
+  };
 }
