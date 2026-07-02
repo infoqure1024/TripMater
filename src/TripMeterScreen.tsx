@@ -68,7 +68,16 @@ export default function OdometerScreen() {
   const uploader = useUploader();
   const { requestPermissions } = useLocationPermission();
 
-  const { km, speedKmh, logCount, reset, getCsv, clearLog, reasonCounts } = useOdometer(active, {
+  const {
+    km,
+    speedKmh,
+    logCount,
+    logIsFull,
+    reset,
+    getCsv,
+    clearLog,
+    reasonCounts,
+  } = useOdometer(active, {
     debug: SHOW_DIAGNOSTICS,
     config,
     onCountedFix: uploader.enqueue,
@@ -96,7 +105,8 @@ export default function OdometerScreen() {
   // 経過時間（計測中のみ進む）
   useEffect(() => {
     if (!active) return;
-    if (startRef.current == null) startRef.current = Date.now() - elapsed * 1000;
+    if (startRef.current == null)
+      startRef.current = Date.now() - elapsed * 1000;
     const id = setInterval(() => {
       if (startRef.current != null) {
         setElapsed((Date.now() - startRef.current) / 1000);
@@ -113,7 +123,10 @@ export default function OdometerScreen() {
     }
     const perm = await requestPermissions();
     if (!perm.canUseLocation) {
-      Alert.alert('位置情報が必要です', '設定アプリから位置情報の許可を有効にしてください。');
+      Alert.alert(
+        '位置情報が必要です',
+        '設定アプリから位置情報の許可を有効にしてください。',
+      );
       return;
     }
     setActive(true);
@@ -142,9 +155,14 @@ export default function OdometerScreen() {
       {/* 状態インジケータ */}
       <View style={styles.statusRow}>
         <View
-          style={[styles.dot, { backgroundColor: active ? COLORS.accent : COLORS.textDim }]}
+          style={[
+            styles.dot,
+            { backgroundColor: active ? COLORS.accent : COLORS.textDim },
+          ]}
         />
-        <Text style={styles.statusText}>{active ? 'MEASURING' : 'STOPPED'}</Text>
+        <Text style={styles.statusText}>
+          {active ? 'MEASURING' : 'STOPPED'}
+        </Text>
       </View>
 
       {/* メイン距離 */}
@@ -196,7 +214,9 @@ export default function OdometerScreen() {
               </Pressable>
             </View>
             <ScrollView>
-              <UploadSettingsPanel onConfigSaved={() => setSettingsVisible(false)} />
+              <UploadSettingsPanel
+                onConfigSaved={() => setSettingsVisible(false)}
+              />
             </ScrollView>
           </View>
         </View>
@@ -214,7 +234,12 @@ export default function OdometerScreen() {
             },
           ]}
         >
-          <Text style={[styles.mainBtnText, { color: active ? '#FFFFFF' : '#06140C' }]}>
+          <Text
+            style={[
+              styles.mainBtnText,
+              { color: active ? '#FFFFFF' : '#06140C' },
+            ]}
+          >
             {active ? '停止' : '計測開始'}
           </Text>
         </Pressable>
@@ -230,13 +255,22 @@ export default function OdometerScreen() {
       {SHOW_DIAGNOSTICS && (
         <View style={styles.debug}>
           <View style={styles.debugRow}>
-            <Text style={styles.debugText}>log: {logCount} 点</Text>
+            {/* logCount は保持中のログ件数（上限あり）。上限到達後は古いログから
+                破棄されるリングバッファのため、その旨を明示する（Issue #47）。 */}
+            <Text style={styles.debugText}>
+              log: {logCount} 点{logIsFull ? '（上限・古い分は破棄済み）' : ''}
+            </Text>
             <View style={styles.debugActions}>
               <Pressable onPress={() => setTuningVisible(true)}>
                 <Text style={styles.debugLink}>TUNING</Text>
               </Pressable>
               <Pressable onPress={handleExport} disabled={logCount === 0}>
-                <Text style={[styles.debugLink, { opacity: logCount === 0 ? 0.4 : 1, marginLeft: 16 }]}>
+                <Text
+                  style={[
+                    styles.debugLink,
+                    { opacity: logCount === 0 ? 0.4 : 1, marginLeft: 16 },
+                  ]}
+                >
                   CSV
                 </Text>
               </Pressable>
@@ -266,7 +300,12 @@ const styles = StyleSheet.create({
   },
   statusRow: { flexDirection: 'row', alignItems: 'center' },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
-  statusText: { color: COLORS.textDim, fontSize: 13, fontWeight: '700', letterSpacing: 2 },
+  statusText: {
+    color: COLORS.textDim,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   distance: {
     color: COLORS.text,
@@ -309,9 +348,19 @@ const styles = StyleSheet.create({
   },
   statUnit: { color: COLORS.textDim, fontSize: 14, fontWeight: '600' },
   controls: {},
-  mainBtn: { height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  mainBtn: {
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mainBtnText: { fontSize: 20, fontWeight: '800', letterSpacing: 2 },
-  resetBtn: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  resetBtn: {
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
   resetText: { color: COLORS.textDim, fontSize: 15, fontWeight: '600' },
   debug: {
     marginTop: 16,

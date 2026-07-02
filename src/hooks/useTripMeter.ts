@@ -15,9 +15,9 @@ function generateSampleId(): string {
 }
 
 interface UseOdometerOptions {
-  debug?: boolean;                  // true で生ログを蓄積
+  debug?: boolean; // true で生ログを蓄積
   config?: Partial<OdometerConfig>; // 閾値の上書き
-  deviceId?: string;                // upload sample device identifier
+  deviceId?: string; // upload sample device identifier
   onCountedFix?: (sample: LocationSample) => Promise<void>; // called for every fix that adds distance
 }
 
@@ -28,17 +28,26 @@ const EMPTY_COUNTS: ReasonCounts = {};
 export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const { debug = false, config, deviceId = '', onCountedFix } = options;
   const onCountedFixRef = useRef(onCountedFix);
-  useEffect(() => { onCountedFixRef.current = onCountedFix; }, [onCountedFix]);
+  useEffect(() => {
+    onCountedFixRef.current = onCountedFix;
+  }, [onCountedFix]);
   const deviceIdRef = useRef(deviceId);
-  useEffect(() => { deviceIdRef.current = deviceId; }, [deviceId]);
+  useEffect(() => {
+    deviceIdRef.current = deviceId;
+  }, [deviceId]);
   const odometerRef = useRef(new Odometer(config));
   const activityStill = useActivityRecognition(active);
   const loggerRef = useRef(new FixLogger());
   const [meters, setMeters] = useState(0);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [logCount, setLogCount] = useState(0);
+  const [logIsFull, setLogIsFull] = useState(false);
   const [reasonCounts, setReasonCounts] = useState<ReasonCounts>(EMPTY_COUNTS);
-  const { start: fgsStart, stop: fgsStop, updateNotification: fgsUpdateNotification } = useForegroundService();
+  const {
+    start: fgsStart,
+    stop: fgsStop,
+    updateNotification: fgsUpdateNotification,
+  } = useForegroundService();
 
   const reset = useCallback(() => {
     odometerRef.current.reset();
@@ -49,6 +58,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   const clearLog = useCallback(() => {
     loggerRef.current.clear();
     setLogCount(0);
+    setLogIsFull(false);
     setReasonCounts(EMPTY_COUNTS);
   }, []);
 
@@ -61,11 +71,15 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   }, [config]);
 
   const activityStillRef = useRef(activityStill);
-  useEffect(() => { activityStillRef.current = activityStill; }, [activityStill]);
+  useEffect(() => {
+    activityStillRef.current = activityStill;
+  }, [activityStill]);
 
   const sessionIdRef = useRef<string>('');
   useEffect(() => {
-    if (active) { sessionIdRef.current = generateSampleId(); }
+    if (active) {
+      sessionIdRef.current = generateSampleId();
+    }
   }, [active]);
 
   // FGS ライフサイクル: 計測開始でサービス起動 → 停止でサービス終了
@@ -80,7 +94,7 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
   useEffect(() => {
     if (!active) return;
     const watchId = Geolocation.watchPosition(
-      (pos) => {
+      pos => {
         const fix: Fix = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
@@ -91,7 +105,9 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         };
         const result = odometerRef.current.add(fix);
         setMeters(result.total);
-        setSpeedKmh(result.filteredSpeedMps != null ? result.filteredSpeedMps * 3.6 : 0);
+        setSpeedKmh(
+          result.filteredSpeedMps != null ? result.filteredSpeedMps * 3.6 : 0,
+        );
         // 通知に走行距離をリアルタイム反映
         const km = (result.total / 1000).toFixed(2);
         fgsUpdateNotification('走行計測中', `走行距離: ${km} km`);
@@ -110,7 +126,9 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
             distanceDeltaM: result.distanceAdded,
             sessionId: sessionIdRef.current,
           };
-          onCountedFixRef.current(sample).catch((e) => console.warn('[tripMeter] enqueue error', e));
+          onCountedFixRef
+            .current(sample)
+            .catch(e => console.warn('[tripMeter] enqueue error', e));
         }
         setReasonCounts(prev => ({
           ...prev,
@@ -118,14 +136,17 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
         }));
         if (debug) {
           loggerRef.current.record(fix, result);
+          // count は保持件数（上限 maxEntries で頭打ち）。上限到達後は古い
+          // エントリが破棄され続けるため、isAtCapacity を UI 側に伝える。
           setLogCount(loggerRef.current.count);
+          setLogIsFull(loggerRef.current.isAtCapacity);
         }
       },
-      (err) => console.warn('[odometer] location error', err.code, err.message),
+      err => console.warn('[odometer] location error', err.code, err.message),
       {
         enableHighAccuracy: true,
-        distanceFilter: 0,    // 自前でゲートするので OS フィルタは無効
-        interval: 1000,       // Android: 1秒間隔
+        distanceFilter: 0, // 自前でゲートするので OS フィルタは無効
+        interval: 1000, // Android: 1秒間隔
         fastestInterval: 500, // Android
         forceRequestLocation: true,
         showLocationDialog: true,
@@ -137,5 +158,16 @@ export function useOdometer(active: boolean, options: UseOdometerOptions = {}) {
     };
   }, [active, debug, fgsUpdateNotification]);
 
-  return { meters, km: meters / 1000, speedKmh, reset, logCount, clearLog, getCsv, getEntries, reasonCounts };
+  return {
+    meters,
+    km: meters / 1000,
+    speedKmh,
+    reset,
+    logCount,
+    logIsFull,
+    clearLog,
+    getCsv,
+    getEntries,
+    reasonCounts,
+  };
 }
