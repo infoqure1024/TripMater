@@ -401,6 +401,57 @@ describe('GET /api/v1/sessions/:sessionId/summary', () => {
     expect(body.sessionId).toBe(SESSION_ID);
     expect(body.deviceId).toBe(DEVICE_ID);
   });
+
+  it('returns 404 when admin passes ?all=true and no rows match', async () => {
+    // returnAll only changes whether LIMIT 1 is applied; 0 rows → 404 either way.
+    app = makeApp(makePool([{ rows: [] }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=true`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json<ErrorBody>().error.code).toBe('NOT_FOUND');
+  });
+
+  it('treats ?all=1 as non-canonical for admin (falls back to LIMIT 1 single object)', async () => {
+    app = makeApp(makePool([{ rows: [sessionRow()] }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=1`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionSummary>();
+    expect(body.sessionId).toBe(SESSION_ID);
+    expect(body.deviceId).toBe(DEVICE_ID);
+  });
+
+  it('treats ?all=TRUE as non-canonical for admin (falls back to LIMIT 1 single object)', async () => {
+    app = makeApp(makePool([{ rows: [sessionRow()] }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=TRUE`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionSummary>();
+    expect(body.sessionId).toBe(SESSION_ID);
+    expect(body.deviceId).toBe(DEVICE_ID);
+  });
+
+  it('treats ?all= (empty value) as non-canonical for admin (falls back to LIMIT 1 single object)', async () => {
+    app = makeApp(makePool([{ rows: [sessionRow()] }]));
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${SESSION_ID}/summary?all=`,
+      headers: adminHeaders(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionSummary>();
+    expect(body.sessionId).toBe(SESSION_ID);
+    expect(body.deviceId).toBe(DEVICE_ID);
+  });
 });
 
 // ── GET /api/v1/sessions/:sessionId/samples ──────────────────────────────────
