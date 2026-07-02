@@ -89,6 +89,9 @@ exports.up = (pgm) => {
   pgm.createIndex('location_samples', ['device_id', 'recorded_at'], {
     name: 'idx_samples_device_time',
   });
+  pgm.createIndex('location_samples', ['lat', 'lng'], {
+    name: 'idx_samples_lat_lng',
+  });
 };
 
 /** @param {import('node-pg-migrate').MigrationBuilder} pgm */
